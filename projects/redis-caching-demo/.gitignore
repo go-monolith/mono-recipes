@@ -1,0 +1,18 @@
+# Binary
+redis-caching-demo
+
+# Database files
+*.db
+
+# Test database files
+test_*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

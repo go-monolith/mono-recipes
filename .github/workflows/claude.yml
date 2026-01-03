@@ -1,0 +1,93 @@
+name: claude-code
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: write # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install JavaScript tool & dependencies
+        run: npm install -g @devcontainers/cli
+      
+      - name: Start a DevContainer for the current session
+        run: devcontainer up --workspace-folder .
+      
+      - name: Run command in DevContainer to remove the pre-commit hook
+        run: devcontainer exec --workspace-folder . bash -c 'pre-commit uninstall -t pre-commit -t commit-msg'
+
+      - name: Create MCP Config
+        run: |
+          cat > /tmp/mcp-config.json << 'EOF'
+          {
+            "mcpServers": {
+              "gosu": {
+                "type": "stdio",
+                "command": "docker",
+                "args": [
+                  "run",
+                  "-i",
+                  "--rm",
+                  "-e",
+                  "GITHUB_PERSONAL_ACCESS_TOKEN",
+                  "0xgosu/gosu-mcp-server"
+                ],
+                "env": {
+                  "GITHUB_PERSONAL_ACCESS_TOKEN": "${{ secrets.GOSU_GITHUB_TOKEN }}"
+                }
+              }
+            }
+          }
+          EOF
+          
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Enable progress tracking
+          track_progress: true
+
+          # Optional: Customize the trigger phrase (default: @claude)
+          # trigger_phrase: "/claude"
+
+          # Optional: Trigger when specific user is assigned to an issue
+          # assignee_trigger: "claude-bot"
+
+          # Configure Claude's behavior with CLI arguments
+          claude_args: |
+            --model sonnet
+            --max-turns 200
+            --mcp-config /tmp/mcp-config.json
+            --allowedTools "WebSearch,WebFetch,mcp__gosu,Bash(gh label:*),Bash(gh search:*),Bash(gh pr:*),Bash(gh issue:*),Bash(gh release create:*),Bash(gh release list:*),Bash(gh run:*),Bash(gh search:*),Bash(devcontainer exec:*)"
+            --system-prompt "You MUST plan carefully so that you can finish all planned tasks within 200 turns. Always use `devcontainer exec --workspace-folder . [command to run]` to run bash commands (except for `git`,`gh` commands) in the devcontainer; do not execute commands on the host machine. For example: `make build` -> `devcontainer exec --workspace-folder . make build`, `go test -v ./pkg/gosu` -> `devcontainer exec --workspace-folder . go test -v ./pkg/gosu`"
+
+          # Use specific Claude Code settings optimised for this Github Action
+          settings: ".claude/settings.json"

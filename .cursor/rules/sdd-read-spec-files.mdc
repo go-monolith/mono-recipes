@@ -1,0 +1,35 @@
+---
+description: When creating or modifying any source code file or unit test file (eg, *.ts,*.py,*.go), always read the associated specification file (.spec.md) to understand the requirements and context. 
+alwaysApply: false
+---
+# Read Associated Spec Files
+
+When creating or modifying any source code file or unit test file, always read the associated specification file to understand the requirements and context.
+
+## Pattern
+For any source file `[file-name].[extension]`, look for and read the corresponding spec file `[file-name].spec.md` in the same directory.
+
+## Examples
+- When working on `auth.ts` → read `auth.spec.md`
+- When working on `user_service.py` → read `user_service.spec.md`
+- When working on `permission_manager.py` → read `permission_manager.spec.md`
+- When working on `auth_test.ts` → read `auth.spec.md`
+- When working on `user_service_test.py` → read `user_service.spec.md`
+- When working on `permission_manager.test.js` → read `permission_manager.spec.md`
+- When working on `auth.spec.ts` → read `auth.spec.md`
+- When working on `api_handler.go` → read `api_handler.spec.md`
+- When working on `api_handler_test.go` → read `api_handler.spec.md`
+
+## Implementation
+1. Before making any changes to a source file, first read its associated `.spec.md` file
+2. Use the spec file to understand:
+   - Requirements and functionality
+   - Expected behavior and edge cases
+   - API contracts and interfaces
+   - Testing requirements
+   - Dependencies and relationships
+
+## File Location
+Spec files are typically located in the same directory as their corresponding source files, following the naming pattern `[file-name].spec.md`.
+
+This ensures that all code changes are made with full understanding of the specifications and requirements.

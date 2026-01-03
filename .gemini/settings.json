@@ -1,0 +1,28 @@
+{
+  "tools": {
+    "autoAccept": true
+  },
+  "ide": {
+    "hasSeenNudge": true
+  },
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "ui": {
+    "hideTips": true,
+    "hideBanner": true,
+    "theme": "Default",
+    "footer": {
+      "hideContextPercentage": false
+    }
+  },
+  "general": {
+    "previewFeatures": true,
+    "enablePromptCompletion": true
+  },
+  "privacy": {
+    "usageStatisticsEnabled": false
+  }
+}

@@ -19,7 +19,9 @@
   "hooks": {},
   "enabledPlugins": {
     "gosu-mcp-core@gosu-code": true,
-    "voice-coding@gosu-code": true
+    "voice-coding@gosu-code": true,
+    "gdd@gosu-code": true,
+    "gopls-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "gosu-code": {

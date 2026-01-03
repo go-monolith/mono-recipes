@@ -1,0 +1,6 @@
+# Python dependencies for the WebSocket chat demo script
+# Install with: pip install -r requirements.txt
+
+websockets>=12.0
+aiohttp>=3.9.0
+colorama>=0.4.6

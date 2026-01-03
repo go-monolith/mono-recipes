@@ -14,7 +14,7 @@ These constraints define the hard boundaries for achieving the goal "Mono Cookbo
 ## Git & Cadence
 
 - **Git Branching Strategy**: Create a feature branch `feat/*` for each recipe separately from `main`, commit and submit a PR to `main` for review.
-- **Git Commit Frequency**: Commit after completing each logical unit of work
+- **Git Commit Frequency**: Commit after completing each logical unit of work. Must use "#2 <recipe-name>: <commit-message>" for commit messages format.
 - **OKR Review Cadence**: Must review Goal's Success Criteria after completing each recipe
 - **Human Executive Check-in Frequency**: Require Human Executive check-in after completing every 5 recipes
 

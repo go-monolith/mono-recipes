@@ -7,20 +7,21 @@ import (
 	"fmt"
 
 	"github.com/example/background-jobs-demo/domain/job"
-	"github.com/example/background-jobs-demo/modules/nats"
+	"github.com/example/background-jobs-demo/modules/worker"
+	"github.com/go-monolith/mono"
 )
 
 // Service handles job-related business logic.
 type Service struct {
-	jobStore   *job.Store
-	natsClient *nats.Client
+	jobStore        *job.Store
+	workerContainer mono.ServiceContainer
 }
 
 // NewService creates a new job service.
-func NewService(jobStore *job.Store, natsClient *nats.Client) *Service {
+func NewService(jobStore *job.Store, workerContainer mono.ServiceContainer) *Service {
 	return &Service{
-		jobStore:   jobStore,
-		natsClient: natsClient,
+		jobStore:        jobStore,
+		workerContainer: workerContainer,
 	}
 }
 
@@ -45,9 +46,22 @@ func (s *Service) CreateJob(ctx context.Context, req *job.CreateJobRequest) (*jo
 		return nil, fmt.Errorf("failed to store job: %w", err)
 	}
 
-	// Publish to queue
-	if err := s.natsClient.PublishJob(ctx, j); err != nil {
-		// Update status if publish fails
+	// Get the QueueGroupService client
+	client, err := s.workerContainer.GetQueueGroupService(worker.ServiceName)
+	if err != nil {
+		_ = s.jobStore.UpdateStatus(j.ID, job.JobStatusFailed)
+		return nil, job.ErrQueueUnavailable
+	}
+
+	// Marshal the job for the queue
+	jobData, err := json.Marshal(j)
+	if err != nil {
+		_ = s.jobStore.UpdateStatus(j.ID, job.JobStatusFailed)
+		return nil, fmt.Errorf("failed to marshal job: %w", err)
+	}
+
+	// Send to worker queue (fire-and-forget)
+	if err := client.Send(ctx, jobData); err != nil {
 		_ = s.jobStore.UpdateStatus(j.ID, job.JobStatusFailed)
 		return nil, fmt.Errorf("failed to enqueue job: %w", err)
 	}
@@ -66,7 +80,7 @@ func (s *Service) ListJobs(status job.JobStatus, jobType job.JobType, limit, off
 }
 
 // validateAndMarshalPayload validates the payload for the given job type and returns JSON bytes.
-func (s *Service) validateAndMarshalPayload(jobType job.JobType, payload interface{}) (json.RawMessage, error) {
+func (s *Service) validateAndMarshalPayload(jobType job.JobType, payload any) (json.RawMessage, error) {
 	// Marshal to JSON first
 	data, err := json.Marshal(payload)
 	if err != nil {

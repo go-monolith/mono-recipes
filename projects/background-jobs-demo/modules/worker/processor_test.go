@@ -9,7 +9,7 @@ import (
 )
 
 func TestProcessor_Process_Email(t *testing.T) {
-	processor := NewProcessor("test-worker")
+	processor := NewProcessor()
 
 	payload := &job.EmailPayload{
 		To:      "test@example.com",
@@ -44,7 +44,7 @@ func TestProcessor_Process_Email(t *testing.T) {
 }
 
 func TestProcessor_Process_ImageProcessing(t *testing.T) {
-	processor := NewProcessor("test-worker")
+	processor := NewProcessor()
 
 	payload := &job.ImageProcessingPayload{
 		ImageURL:   "https://example.com/image.jpg",
@@ -76,7 +76,7 @@ func TestProcessor_Process_ImageProcessing(t *testing.T) {
 }
 
 func TestProcessor_Process_ReportGeneration(t *testing.T) {
-	processor := NewProcessor("test-worker")
+	processor := NewProcessor()
 
 	payload := &job.ReportGenerationPayload{
 		ReportType: "sales",
@@ -109,7 +109,7 @@ func TestProcessor_Process_ReportGeneration(t *testing.T) {
 }
 
 func TestProcessor_Process_InvalidType(t *testing.T) {
-	processor := NewProcessor("test-worker")
+	processor := NewProcessor()
 
 	j := job.NewJob(job.JobType("invalid_type"), []byte("{}"), 1)
 
@@ -128,7 +128,7 @@ func TestProcessor_Process_InvalidType(t *testing.T) {
 }
 
 func TestProcessor_Process_ContextCancellation(t *testing.T) {
-	processor := NewProcessor("test-worker")
+	processor := NewProcessor()
 
 	payload := &job.EmailPayload{
 		To:      "test@example.com",
@@ -156,7 +156,7 @@ func TestProcessor_Process_ContextCancellation(t *testing.T) {
 }
 
 func TestProcessor_Process_Timeout(t *testing.T) {
-	processor := NewProcessor("test-worker")
+	processor := NewProcessor()
 
 	payload := &job.ImageProcessingPayload{
 		ImageURL:   "https://example.com/image.jpg",
@@ -180,72 +180,5 @@ func TestProcessor_Process_Timeout(t *testing.T) {
 
 	if result != nil {
 		t.Error("Process() should return nil result on timeout")
-	}
-}
-
-func TestCalculateRetryDelay(t *testing.T) {
-	config := DefaultPoolConfig()
-
-	tests := []struct {
-		name       string
-		retryCount int
-		wantMin    time.Duration
-		wantMax    time.Duration
-	}{
-		{
-			name:       "first retry",
-			retryCount: 1,
-			wantMin:    1 * time.Second,
-			wantMax:    1 * time.Second,
-		},
-		{
-			name:       "second retry",
-			retryCount: 2,
-			wantMin:    2 * time.Second,
-			wantMax:    2 * time.Second,
-		},
-		{
-			name:       "third retry",
-			retryCount: 3,
-			wantMin:    4 * time.Second,
-			wantMax:    4 * time.Second,
-		},
-		{
-			name:       "fourth retry",
-			retryCount: 4,
-			wantMin:    8 * time.Second,
-			wantMax:    8 * time.Second,
-		},
-		{
-			name:       "fifth retry (capped at max)",
-			retryCount: 5,
-			wantMin:    16 * time.Second,
-			wantMax:    16 * time.Second,
-		},
-		{
-			name:       "tenth retry (capped at max)",
-			retryCount: 10,
-			wantMin:    time.Minute,
-			wantMax:    time.Minute,
-		},
-	}
-
-	worker := NewWorker("test", config, nil, nil, nil)
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			delay := worker.calculateRetryDelay(tt.retryCount)
-
-			if delay < tt.wantMin || delay > tt.wantMax {
-				t.Errorf("calculateRetryDelay(%d) = %v, want between %v and %v",
-					tt.retryCount, delay, tt.wantMin, tt.wantMax)
-			}
-
-			// Ensure delay never exceeds max
-			if delay > config.MaxRetryDelay {
-				t.Errorf("calculateRetryDelay(%d) = %v, exceeds max %v",
-					tt.retryCount, delay, config.MaxRetryDelay)
-			}
-		})
 	}
 }

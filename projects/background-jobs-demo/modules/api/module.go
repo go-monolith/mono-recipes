@@ -1,3 +1,4 @@
+// Package api provides REST API handlers for job management.
 package api
 
 import (
@@ -6,27 +7,29 @@ import (
 	"log"
 
 	"github.com/example/background-jobs-demo/domain/job"
-	"github.com/example/background-jobs-demo/modules/nats"
 	"github.com/go-monolith/mono"
 	"github.com/gofiber/fiber/v2"
 )
 
 // Module provides the REST API as a mono module.
 type Module struct {
-	app        *fiber.App
-	handler    *Handler
-	service    *Service
-	jobStore   *job.Store
-	natsClient *nats.Client
-	port       int
+	app             *fiber.App
+	handler         *Handler
+	service         *Service
+	jobStore        *job.Store
+	workerContainer mono.ServiceContainer
+	port            int
 }
 
+// Compile-time interface checks.
+var _ mono.Module = (*Module)(nil)
+var _ mono.DependentModule = (*Module)(nil)
+
 // NewModule creates a new API module.
-func NewModule(port int, jobStore *job.Store, natsClient *nats.Client) *Module {
+func NewModule(port int, jobStore *job.Store) *Module {
 	return &Module{
-		port:       port,
-		jobStore:   jobStore,
-		natsClient: natsClient,
+		port:     port,
+		jobStore: jobStore,
 	}
 }
 
@@ -35,8 +38,20 @@ func (m *Module) Name() string {
 	return "api"
 }
 
-// Init initializes the API module.
-func (m *Module) Init(_ mono.ServiceContainer) error {
+// Dependencies declares that this module depends on the worker module.
+func (m *Module) Dependencies() []string {
+	return []string{"worker"}
+}
+
+// SetDependencyServiceContainer receives the worker module's service container.
+func (m *Module) SetDependencyServiceContainer(module string, container mono.ServiceContainer) {
+	if module == "worker" {
+		m.workerContainer = container
+	}
+}
+
+// Start initializes and starts the HTTP server.
+func (m *Module) Start(_ context.Context) error {
 	// Create Fiber app
 	m.app = fiber.New(fiber.Config{
 		DisableStartupMessage: true,
@@ -49,7 +64,7 @@ func (m *Module) Init(_ mono.ServiceContainer) error {
 	})
 
 	// Create service and handler
-	m.service = NewService(m.jobStore, m.natsClient)
+	m.service = NewService(m.jobStore, m.workerContainer)
 	m.handler = NewHandler(m.service)
 
 	// Register routes
@@ -63,12 +78,7 @@ func (m *Module) Init(_ mono.ServiceContainer) error {
 		})
 	})
 
-	log.Println("[api] API module initialized")
-	return nil
-}
-
-// Start starts the HTTP server.
-func (m *Module) Start(_ context.Context) error {
+	// Start HTTP server in background
 	go func() {
 		addr := fmt.Sprintf(":%d", m.port)
 		log.Printf("[api] Starting HTTP server on %s", addr)
@@ -76,6 +86,8 @@ func (m *Module) Start(_ context.Context) error {
 			log.Printf("[api] HTTP server error: %v", err)
 		}
 	}()
+
+	log.Println("[api] API module started")
 	return nil
 }
 

@@ -14,16 +14,16 @@ import (
 
 // Service provides product operations with caching.
 type Service struct {
-	repo   *product.Repository
-	cache  *cache.Cache
+	repo    *product.Repository
+	cache   cache.CacheService
 	sfGroup singleflight.Group // Prevents cache stampede
 }
 
 // NewService creates a new product service.
-func NewService(repo *product.Repository, cache *cache.Cache) *Service {
+func NewService(repo *product.Repository, c cache.CacheService) *Service {
 	return &Service{
 		repo:  repo,
-		cache: cache,
+		cache: c,
 	}
 }
 
@@ -37,7 +37,7 @@ func cacheKeyList(offset, limit int) string {
 	return fmt.Sprintf("list:%d:%d", offset, limit)
 }
 
-// Create creates a new product (no caching, invalidates list cache).
+// Create creates a new product (no caching, invalidates cache).
 func (s *Service) Create(ctx context.Context, req *product.CreateProductRequest) (*product.Product, error) {
 	p := &product.Product{
 		Name:        req.Name,
@@ -51,9 +51,9 @@ func (s *Service) Create(ctx context.Context, req *product.CreateProductRequest)
 		return nil, err
 	}
 
-	// Invalidate list cache since we added a new product
-	if err := s.cache.DeletePattern(ctx, "list:*"); err != nil {
-		log.Printf("[product] Warning: failed to invalidate list cache: %v", err)
+	// Invalidate all cache since we added a new product
+	if err := s.cache.InvalidateAll(ctx); err != nil {
+		log.Printf("[product] Warning: failed to invalidate cache: %v", err)
 	}
 
 	log.Printf("[product] Created product ID=%d, cache invalidated", p.ID)
@@ -201,7 +201,7 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 	return nil
 }
 
-// invalidateCaches removes the product from cache and invalidates list cache.
+// invalidateCaches removes the product from cache and invalidates all cache.
 func (s *Service) invalidateCaches(ctx context.Context, id uint) {
 	// Invalidate individual product cache
 	cacheKey := cacheKeyByID(id)
@@ -209,18 +209,8 @@ func (s *Service) invalidateCaches(ctx context.Context, id uint) {
 		log.Printf("[product] Warning: failed to invalidate cache for ID=%d: %v", id, err)
 	}
 
-	// Invalidate list cache
-	if err := s.cache.DeletePattern(ctx, "list:*"); err != nil {
-		log.Printf("[product] Warning: failed to invalidate list cache: %v", err)
+	// Invalidate all cache (replaces pattern-based deletion)
+	if err := s.cache.InvalidateAll(ctx); err != nil {
+		log.Printf("[product] Warning: failed to invalidate all cache: %v", err)
 	}
-}
-
-// GetCacheStats returns the cache statistics.
-func (s *Service) GetCacheStats() cache.StatsSnapshot {
-	return s.cache.GetStats()
-}
-
-// ResetCacheStats resets the cache statistics.
-func (s *Service) ResetCacheStats() {
-	s.cache.ResetStats()
 }

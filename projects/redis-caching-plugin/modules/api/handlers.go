@@ -201,26 +201,6 @@ func (h *Handlers) DeleteProduct(c *fiber.Ctx) error {
 	})
 }
 
-// GetCacheStats handles GET /api/v1/cache/stats.
-func (h *Handlers) GetCacheStats(c *fiber.Ctx) error {
-	stats := h.productService.GetCacheStats()
-
-	return c.JSON(fiber.Map{
-		"cache_stats": stats,
-		"timestamp":   time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-// ResetCacheStats handles POST /api/v1/cache/stats/reset.
-func (h *Handlers) ResetCacheStats(c *fiber.Ctx) error {
-	h.productService.ResetCacheStats()
-
-	return c.JSON(fiber.Map{
-		"message":   "Cache statistics reset",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
 // HealthCheck handles GET /health.
 func (h *Handlers) HealthCheck(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{

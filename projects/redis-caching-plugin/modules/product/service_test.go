@@ -2,13 +2,14 @@ package product
 
 import (
 	"context"
+	"net"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/example/redis-caching-demo/domain/product"
 	"github.com/example/redis-caching-demo/modules/cache"
-	"github.com/redis/go-redis/v9"
+	"github.com/gofiber/storage/redis/v3"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -17,17 +18,30 @@ import (
 // Test configuration
 const testRedisAddr = "localhost:6379"
 
+// checkRedisAvailable checks if Redis is reachable before creating storage.
+// gofiber/storage/redis panics on connection failure, so we check first.
+func checkRedisAvailable(t *testing.T) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", testRedisAddr, 2*time.Second)
+	if err != nil {
+		t.Skipf("Redis not available at %s: %v", testRedisAddr, err)
+	}
+	conn.Close()
+}
+
 // testSetup creates a test environment with database and cache.
 type testSetup struct {
 	db      *gorm.DB
 	repo    *product.Repository
-	cache   *cache.Cache
+	cache   cache.CacheService
+	storage *redis.Storage
 	service *Service
 	cleanup func()
 }
 
 func setupTest(t *testing.T) *testSetup {
 	t.Helper()
+	checkRedisAvailable(t)
 
 	// Create a temporary SQLite database
 	dbPath := "test_products_" + t.Name() + ".db"
@@ -45,27 +59,22 @@ func setupTest(t *testing.T) *testSetup {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
 
-	// Create Redis client
-	client := redis.NewClient(&redis.Options{
-		Addr: testRedisAddr,
+	// Create Redis storage using gofiber/storage
+	storage := redis.New(redis.Config{
+		Host: "localhost",
+		Port: 6379,
 	})
-
-	ctx := context.Background()
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skipf("Redis not available at %s: %v", testRedisAddr, err)
-	}
 
 	// Create cache with unique prefix for this test
 	prefix := "test:" + t.Name() + ":"
-	cleanupKeys(ctx, client, prefix+"*")
-	c := cache.New(client, prefix, 5*time.Minute)
+	c := cache.NewCacheService(storage, prefix, 5*time.Minute)
 
 	// Create service
 	service := NewService(repo, c)
 
 	cleanup := func() {
-		cleanupKeys(ctx, client, prefix+"*")
-		client.Close()
+		storage.Reset()
+		storage.Close()
 		sqlDB, _ := db.DB()
 		sqlDB.Close()
 		os.Remove(dbPath)
@@ -75,25 +84,9 @@ func setupTest(t *testing.T) *testSetup {
 		db:      db,
 		repo:    repo,
 		cache:   c,
+		storage: storage,
 		service: service,
 		cleanup: cleanup,
-	}
-}
-
-func cleanupKeys(ctx context.Context, client *redis.Client, pattern string) {
-	var cursor uint64
-	for {
-		keys, nextCursor, err := client.Scan(ctx, cursor, pattern, 100).Result()
-		if err != nil {
-			return
-		}
-		if len(keys) > 0 {
-			client.Del(ctx, keys...)
-		}
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
 	}
 }
 
@@ -141,7 +134,6 @@ func TestService_GetByID_CacheAside(t *testing.T) {
 	defer ts.cleanup()
 
 	ctx := context.Background()
-	ts.cache.ResetStats()
 
 	// Create a product directly in DB
 	p := &product.Product{
@@ -178,15 +170,6 @@ func TestService_GetByID_CacheAside(t *testing.T) {
 	if result2.ID != p.ID {
 		t.Errorf("Product ID = %d, want %d", result2.ID, p.ID)
 	}
-
-	// Verify stats
-	stats := ts.cache.GetStats()
-	if stats.Hits != 1 {
-		t.Errorf("Cache hits = %d, want 1", stats.Hits)
-	}
-	if stats.Misses != 1 {
-		t.Errorf("Cache misses = %d, want 1", stats.Misses)
-	}
 }
 
 func TestService_GetByID_NotFound(t *testing.T) {
@@ -212,7 +195,6 @@ func TestService_List_CacheAside(t *testing.T) {
 	defer ts.cleanup()
 
 	ctx := context.Background()
-	ts.cache.ResetStats()
 
 	// Create some products
 	for i := 1; i <= 3; i++ {
@@ -224,9 +206,6 @@ func TestService_List_CacheAside(t *testing.T) {
 		}
 		ts.service.Create(ctx, req)
 	}
-
-	// Reset stats after creates (which may have cache operations)
-	ts.cache.ResetStats()
 
 	// First list - cache miss
 	products1, total1, fromCache1, err := ts.service.List(ctx, 0, 10)
@@ -276,8 +255,6 @@ func TestService_List_Pagination(t *testing.T) {
 		ts.service.Create(ctx, req)
 	}
 
-	ts.cache.ResetStats()
-
 	// Different pagination params should have different cache keys
 	list1, _, fromCache1, _ := ts.service.List(ctx, 0, 2)
 	list2, _, fromCache2, _ := ts.service.List(ctx, 2, 2)
@@ -291,12 +268,6 @@ func TestService_List_Pagination(t *testing.T) {
 	}
 	if len(list2) != 2 {
 		t.Errorf("list2 length = %d, want 2", len(list2))
-	}
-
-	// Stats should show 2 misses
-	stats := ts.cache.GetStats()
-	if stats.Misses != 2 {
-		t.Errorf("Misses = %d, want 2", stats.Misses)
 	}
 }
 
@@ -381,64 +352,6 @@ func TestService_Delete_InvalidatesCache(t *testing.T) {
 	result, _, _ := ts.service.GetByID(ctx, created.ID)
 	if result != nil {
 		t.Error("GetByID() after delete should return nil")
-	}
-}
-
-func TestService_CacheStats(t *testing.T) {
-	ts := setupTest(t)
-	defer ts.cleanup()
-
-	ctx := context.Background()
-	ts.cache.ResetStats()
-
-	// Create and fetch to generate cache activity
-	req := &product.CreateProductRequest{
-		Name:     "Stats Test",
-		Price:    100.00,
-		Stock:    10,
-		Category: "Test",
-	}
-	created, _ := ts.service.Create(ctx, req)
-
-	// Get twice - 1 miss, 1 hit
-	ts.service.GetByID(ctx, created.ID)
-	ts.service.GetByID(ctx, created.ID)
-
-	stats := ts.service.GetCacheStats()
-	if stats.Hits < 1 {
-		t.Errorf("Hits = %d, want >= 1", stats.Hits)
-	}
-	if stats.Misses < 1 {
-		t.Errorf("Misses = %d, want >= 1", stats.Misses)
-	}
-}
-
-func TestService_ResetCacheStats(t *testing.T) {
-	ts := setupTest(t)
-	defer ts.cleanup()
-
-	ctx := context.Background()
-
-	// Create and fetch to generate cache activity
-	req := &product.CreateProductRequest{
-		Name:     "Reset Test",
-		Price:    100.00,
-		Stock:    10,
-		Category: "Test",
-	}
-	created, _ := ts.service.Create(ctx, req)
-	ts.service.GetByID(ctx, created.ID)
-	ts.service.GetByID(ctx, created.ID)
-
-	// Reset
-	ts.service.ResetCacheStats()
-
-	stats := ts.service.GetCacheStats()
-	if stats.Hits != 0 {
-		t.Errorf("Hits after reset = %d, want 0", stats.Hits)
-	}
-	if stats.Misses != 0 {
-		t.Errorf("Misses after reset = %d, want 0", stats.Misses)
 	}
 }
 

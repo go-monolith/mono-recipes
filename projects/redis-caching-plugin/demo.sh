@@ -36,8 +36,14 @@ print_info() {
 }
 
 wait_for_input() {
-    echo ""
-    read -p "Press Enter to continue..."
+    # Skip interactive prompt if running non-interactively
+    if [ -t 0 ]; then
+        echo ""
+        read -p "Press Enter to continue..."
+    else
+        echo ""
+        sleep 0.5
+    fi
 }
 
 # Check if server is running
@@ -51,17 +57,17 @@ check_server() {
     fi
 }
 
-# Reset cache statistics
-reset_stats() {
-    print_step "Resetting cache statistics..."
-    curl -s -X POST "$BASE_URL/api/v1/cache/stats/reset" | jq .
-    print_success "Cache statistics reset"
-}
+# Note: Cache statistics endpoints were removed in the refactoring.
+# Use Redis monitoring tools (redis-cli INFO stats) for cache metrics.
 
-# Show cache statistics
-show_stats() {
-    print_step "Current cache statistics:"
-    curl -s "$BASE_URL/api/v1/cache/stats" | jq .
+# Show Redis stats (optional - requires redis-cli)
+show_redis_stats() {
+    print_step "Redis cache info:"
+    if command -v redis-cli &> /dev/null; then
+        redis-cli INFO stats 2>/dev/null | grep -E "(keyspace_hits|keyspace_misses)" || echo "Redis stats not available"
+    else
+        print_info "redis-cli not available - skipping stats"
+    fi
 }
 
 # Create a product
@@ -123,13 +129,8 @@ main() {
     check_server
     wait_for_input
 
-    # Step 1: Reset stats
-    print_header "Step 1: Reset Cache Statistics"
-    reset_stats
-    wait_for_input
-
-    # Step 2: Create products
-    print_header "Step 2: Create Sample Products"
+    # Step 1: Create products
+    print_header "Step 1: Create Sample Products"
     print_info "Creating products populates the database but NOT the cache"
 
     create_product "MacBook Pro" 2499.99 25 "Electronics" "High-performance laptop for professionals"
@@ -139,12 +140,11 @@ main() {
     create_product "USB-C Cable" 19.99 500 "Accessories" "High-quality USB-C charging cable"
 
     print_success "Created 5 products"
-    show_stats
     print_info "Notice: No cache hits yet (all data in database only)"
     wait_for_input
 
-    # Step 3: Demonstrate cache-aside on individual product
-    print_header "Step 3: Cache-Aside Pattern - Single Product"
+    # Step 2: Demonstrate cache-aside on individual product
+    print_header "Step 2: Cache-Aside Pattern - Single Product"
 
     print_info "First request - CACHE MISS (data fetched from database)"
     get_product 1
@@ -158,13 +158,11 @@ main() {
 
     print_info "Third request - Another CACHE HIT"
     get_product 1
-
-    show_stats
-    print_info "Stats should show: 2 hits, 1 miss"
+    print_info "Notice: Multiple cache hits show the caching is working"
     wait_for_input
 
-    # Step 4: Demonstrate cache-aside on list
-    print_header "Step 4: Cache-Aside Pattern - Product List"
+    # Step 3: Demonstrate cache-aside on list
+    print_header "Step 3: Cache-Aside Pattern - Product List"
 
     print_info "First list request - CACHE MISS"
     list_products 0 10
@@ -173,12 +171,10 @@ main() {
     print_info "Second list request - CACHE HIT"
     list_products 0 10
     print_info "Notice: 'from_cache': true for the list"
-
-    show_stats
     wait_for_input
 
-    # Step 5: Cache invalidation on update
-    print_header "Step 5: Cache Invalidation - Update"
+    # Step 4: Cache invalidation on update
+    print_header "Step 4: Cache Invalidation - Update"
 
     print_info "Current product 1 state (from cache):"
     get_product 1
@@ -192,12 +188,10 @@ main() {
     print_info "Getting product 1 after update - CACHE MISS (re-fetched from database)"
     get_product 1
     print_info "Notice: 'from_cache': false - cache was invalidated, new data from DB"
-
-    show_stats
     wait_for_input
 
-    # Step 6: Cache invalidation on delete
-    print_header "Step 6: Cache Invalidation - Delete"
+    # Step 5: Cache invalidation on delete
+    print_header "Step 5: Cache Invalidation - Delete"
 
     print_info "Getting product 5 to populate cache..."
     get_product 5
@@ -213,8 +207,8 @@ main() {
     print_info "Product not found - correctly deleted from both DB and cache"
     wait_for_input
 
-    # Step 7: Different pagination cached separately
-    print_header "Step 7: Pagination - Separate Cache Entries"
+    # Step 6: Different pagination cached separately
+    print_header "Step 6: Pagination - Separate Cache Entries"
 
     print_info "List with offset=0, limit=2 (first time - MISS):"
     list_products 0 2
@@ -229,10 +223,7 @@ main() {
     print_info "Each pagination combination has its own cache entry"
     wait_for_input
 
-    # Final stats
-    print_header "Final Cache Statistics"
-    show_stats
-
+    # Summary
     print_header "Demo Complete!"
     echo ""
     echo "Key takeaways:"
@@ -240,7 +231,7 @@ main() {
     echo "  2. Cache hits are much faster than database queries"
     echo "  3. Updates and deletes automatically invalidate cache"
     echo "  4. Different query parameters result in different cache entries"
-    echo "  5. Cache statistics help monitor cache effectiveness"
+    echo "  5. Use Redis monitoring tools (redis-cli INFO stats) for cache metrics"
     echo ""
 }
 

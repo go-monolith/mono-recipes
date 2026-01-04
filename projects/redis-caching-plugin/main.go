@@ -32,9 +32,12 @@ func main() {
 	log.Printf("Cache Prefix: %s", cachePrefix)
 
 	// Create modules
-	cacheModule := cachemod.NewModuleWithConfig(redisAddr, cachePrefix, cacheTTL)
+	cachePlugin := cachemod.NewPluginModuleWithConfig(redisAddr, cachePrefix, cacheTTL)
 	productModule := productmod.NewModule(dbPath)
 	apiModule := apimod.NewModule(httpPort)
+
+	// Wire up API module dependency (product module)
+	apiModule.SetProductModule(productModule)
 
 	// Create mono application
 	app, err := mono.NewMonoApplication(
@@ -45,23 +48,23 @@ func main() {
 		log.Fatalf("Failed to create mono application: %v", err)
 	}
 
-	// Register modules
-	app.Register(cacheModule)
+	// Register cache as a plugin with alias "cache"
+	// Plugins start first and stop last
+	// The framework will call SetPlugin("cache", cachePlugin) on modules that implement UsePluginModule
+	if err := app.RegisterPlugin(cachePlugin, "cache"); err != nil {
+		log.Fatalf("Failed to register cache plugin: %v", err)
+	}
+
+	// Register regular modules
+	// Product module implements UsePluginModule and will receive the cache plugin
 	app.Register(productModule)
 	app.Register(apiModule)
 
-	// Start modules (this handles Init and Start)
+	// Start the application (handles all module lifecycle)
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
 		log.Fatalf("Failed to start app: %v", err)
 	}
-
-	// Wire up dependencies after start
-	// Cache module must be wired to product module
-	productModule.SetCache(cacheModule.GetCache())
-
-	// Product module must be wired to API module
-	apiModule.SetProductModule(productModule)
 
 	log.Println("=== Application Started ===")
 	log.Printf("API available at http://localhost:%d", httpPort)
@@ -72,8 +75,6 @@ func main() {
 	log.Println("  POST   /api/v1/products     - Create product")
 	log.Println("  PUT    /api/v1/products/:id - Update product")
 	log.Println("  DELETE /api/v1/products/:id - Delete product")
-	log.Println("  GET    /api/v1/cache/stats  - Cache statistics")
-	log.Println("  POST   /api/v1/cache/stats/reset - Reset cache stats")
 	log.Println("")
 	log.Println("Press Ctrl+C to shutdown")
 

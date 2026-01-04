@@ -15,11 +15,14 @@ import (
 
 // Module provides the HTTP API for the caching demo.
 type Module struct {
-	app            *fiber.App
-	handlers       *Handlers
-	productModule  *productmod.Module
-	port           int
+	app           *fiber.App
+	handlers      *Handlers
+	productModule *productmod.Module
+	port          int
 }
+
+// Compile-time interface checks.
+var _ mono.Module = (*Module)(nil)
 
 // NewModule creates a new API module.
 func NewModule(port int) *Module {
@@ -38,8 +41,9 @@ func (m *Module) SetProductModule(pm *productmod.Module) {
 	m.productModule = pm
 }
 
-// Init initializes the Fiber app and configures routes.
-func (m *Module) Init(_ mono.ServiceContainer) error {
+// Start initializes the Fiber app and starts the HTTP server.
+func (m *Module) Start(_ context.Context) error {
+	// Create Fiber app
 	m.app = fiber.New(fiber.Config{
 		AppName:               "Redis Caching Demo",
 		DisableStartupMessage: true,
@@ -53,11 +57,6 @@ func (m *Module) Init(_ mono.ServiceContainer) error {
 	}))
 	m.app.Use(cors.New())
 
-	return nil
-}
-
-// Start starts the HTTP server.
-func (m *Module) Start(_ context.Context) error {
 	// Create handlers with product service
 	if m.productModule == nil {
 		return fmt.Errorf("product module not set")
@@ -81,6 +80,7 @@ func (m *Module) Start(_ context.Context) error {
 		}
 	}()
 
+	log.Println("[api] Module started")
 	return nil
 }
 
@@ -99,19 +99,17 @@ func (m *Module) setupRoutes() {
 	products.Post("/", m.handlers.CreateProduct)
 	products.Put("/:id", m.handlers.UpdateProduct)
 	products.Delete("/:id", m.handlers.DeleteProduct)
-
-	// Cache statistics endpoints
-	cache := api.Group("/cache")
-	cache.Get("/stats", m.handlers.GetCacheStats)
-	cache.Post("/stats/reset", m.handlers.ResetCacheStats)
 }
 
 // Stop stops the HTTP server gracefully.
 func (m *Module) Stop(_ context.Context) error {
 	if m.app != nil {
 		log.Println("[api] Shutting down HTTP server...")
-		return m.app.Shutdown()
+		if err := m.app.Shutdown(); err != nil {
+			return fmt.Errorf("failed to shutdown HTTP server: %w", err)
+		}
 	}
+	log.Println("[api] Module stopped")
 	return nil
 }
 

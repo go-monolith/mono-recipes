@@ -73,8 +73,8 @@ ratelimit.New(
     ratelimit.WithDefaultLimit(100, time.Minute),
 
     // Per-service limits
-    ratelimit.WithServiceLimit("api.createOrder", 50, time.Minute),
-    ratelimit.WithServiceLimit("api.getStatus", 200, time.Minute),
+    ratelimit.WithServiceLimit("create-order", 50, time.Minute),
+    ratelimit.WithServiceLimit("get-status", 200, time.Minute),
 
     // Key prefix for Redis keys
     ratelimit.WithKeyPrefix("ratelimit:"),
@@ -109,18 +109,18 @@ go run main.go
 
 ```bash
 # Test with client ID (each client has separate limits)
-nats request api.getData '{}' --header X-Client-ID:client1
+nats request services.api.get-data '{}' --header X-Client-ID:client1
 
 # Make multiple requests to hit the limit
 for i in {1..110}; do
-  nats request api.getData '{}' --header X-Client-ID:client2
+  nats request services.api.get-data '{}' --header X-Client-ID:client2
 done
 
 # Test service with lower limit (50 req/min)
-nats request api.createOrder '{"product_id":"prod-123","quantity":1,"price":29.99}' --header X-Client-ID:client1
+nats request services.api.create-order '{"product_id":"prod-123","quantity":1,"price":29.99}' --header X-Client-ID:client1
 
 # Test service with higher limit (200 req/min)
-nats request api.getStatus '{}' --header X-Client-ID:client1
+nats request services.api.get-status '{}' --header X-Client-ID:client1
 ```
 
 ### Using the Demo Script
@@ -210,7 +210,7 @@ When rate limit is exceeded:
 
 ```json
 {
-    "error": "rate limit exceeded for service api.getData",
+    "error": "rate limit exceeded for service get-data",
     "remaining": 0,
     "reset_at": "2024-01-15T10:30:00Z",
     "limit": 100

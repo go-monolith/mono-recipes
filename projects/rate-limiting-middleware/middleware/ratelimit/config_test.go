@@ -78,12 +78,12 @@ func TestWithDefaultLimit(t *testing.T) {
 
 func TestWithServiceLimit(t *testing.T) {
 	cfg := DefaultConfig()
-	WithServiceLimit("api.getData", 50, 2*time.Minute)(&cfg)
-	WithServiceLimit("api.createOrder", 10, 10*time.Second)(&cfg)
+	WithServiceLimit("get-data", 50, 2*time.Minute)(&cfg)
+	WithServiceLimit("create-order", 10, 10*time.Second)(&cfg)
 
-	limit1, ok := cfg.ServiceLimits["api.getData"]
+	limit1, ok := cfg.ServiceLimits["get-data"]
 	if !ok {
-		t.Fatal("expected 'api.getData' to be in ServiceLimits")
+		t.Fatal("expected 'get-data' to be in ServiceLimits")
 	}
 	if limit1.Limit != 50 {
 		t.Errorf("expected limit 50, got %d", limit1.Limit)
@@ -92,9 +92,9 @@ func TestWithServiceLimit(t *testing.T) {
 		t.Errorf("expected window 2m, got %v", limit1.Window)
 	}
 
-	limit2, ok := cfg.ServiceLimits["api.createOrder"]
+	limit2, ok := cfg.ServiceLimits["create-order"]
 	if !ok {
-		t.Fatal("expected 'api.createOrder' to be in ServiceLimits")
+		t.Fatal("expected 'create-order' to be in ServiceLimits")
 	}
 	if limit2.Limit != 10 {
 		t.Errorf("expected limit 10, got %d", limit2.Limit)

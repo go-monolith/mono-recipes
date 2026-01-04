@@ -2,7 +2,7 @@ package api
 
 import "time"
 
-// DataResponse is the response for api.getData service.
+// DataResponse is the response for the get-data service.
 type DataResponse struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -10,14 +10,14 @@ type DataResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// OrderRequest is the request for api.createOrder service.
+// OrderRequest is the request for the create-order service.
 type OrderRequest struct {
 	ProductID string  `json:"product_id"`
 	Quantity  int     `json:"quantity"`
 	Price     float64 `json:"price"`
 }
 
-// OrderResponse is the response for api.createOrder service.
+// OrderResponse is the response for the create-order service.
 type OrderResponse struct {
 	OrderID   string    `json:"order_id"`
 	ProductID string    `json:"product_id"`
@@ -27,7 +27,7 @@ type OrderResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// StatusResponse is the response for api.getStatus service.
+// StatusResponse is the response for the get-status service.
 type StatusResponse struct {
 	Service   string    `json:"service"`
 	Status    string    `json:"status"`

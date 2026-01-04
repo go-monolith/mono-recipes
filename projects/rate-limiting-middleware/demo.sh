@@ -63,19 +63,19 @@ burst_requests() {
 
 echo -e "${GREEN}=== Test 1: Basic Service Requests ===${NC}"
 echo "Each service has different rate limits:"
-echo "  - api.getData:     100 req/min (default)"
-echo "  - api.createOrder:  50 req/min (restrictive)"
-echo "  - api.getStatus:   200 req/min (permissive)"
+echo "  - get-data:     100 req/min (default)"
+echo "  - create-order:  50 req/min (restrictive)"
+echo "  - get-status:   200 req/min (permissive)"
 echo ""
 
-echo -e "${YELLOW}Testing api.getData (100 req/min limit):${NC}"
-make_request "api.getData" "{}" "$CLIENT1"
+echo -e "${YELLOW}Testing get-data (100 req/min limit):${NC}"
+make_request "services.api.get-data" "{}" "$CLIENT1"
 
-echo -e "${YELLOW}Testing api.getStatus (200 req/min limit):${NC}"
-make_request "api.getStatus" "{}" "$CLIENT1"
+echo -e "${YELLOW}Testing get-status (200 req/min limit):${NC}"
+make_request "services.api.get-status" "{}" "$CLIENT1"
 
-echo -e "${YELLOW}Testing api.createOrder (50 req/min limit):${NC}"
-make_request "api.createOrder" '{"product_id":"prod-123","quantity":2,"price":49.99}' "$CLIENT1"
+echo -e "${YELLOW}Testing create-order (50 req/min limit):${NC}"
+make_request "services.api.create-order" '{"product_id":"prod-123","quantity":2,"price":49.99}' "$CLIENT1"
 
 echo ""
 echo -e "${GREEN}=== Test 2: Per-Client Isolation ===${NC}"
@@ -83,24 +83,24 @@ echo "Different clients have separate rate limits."
 echo ""
 
 echo -e "${YELLOW}Client 1 request:${NC}"
-make_request "api.getData" "{}" "$CLIENT1"
+make_request "services.api.get-data" "{}" "$CLIENT1"
 
 echo -e "${YELLOW}Client 2 request (separate limit):${NC}"
-make_request "api.getData" "{}" "$CLIENT2"
+make_request "services.api.get-data" "{}" "$CLIENT2"
 
 echo ""
 echo -e "${GREEN}=== Test 3: Rate Limit Enforcement ===${NC}"
-echo "Sending 55 requests to api.createOrder (limit: 50 req/min)"
+echo "Sending 55 requests to create-order (limit: 50 req/min)"
 echo "Client: rate-limit-test"
 echo ""
 
 # Use a fresh client to test rate limiting
 TEST_CLIENT="rate-limit-test-$$"
 
-burst_requests "api.createOrder" '{"product_id":"test","quantity":1,"price":9.99}' "$TEST_CLIENT" 55
+burst_requests "services.api.create-order" '{"product_id":"test","quantity":1,"price":9.99}' "$TEST_CLIENT" 55
 
 echo -e "${YELLOW}Now checking if rate limited (request 56):${NC}"
-make_request "api.createOrder" '{"product_id":"test","quantity":1,"price":9.99}' "$TEST_CLIENT"
+make_request "services.api.create-order" '{"product_id":"test","quantity":1,"price":9.99}' "$TEST_CLIENT"
 
 echo ""
 echo -e "${GREEN}=== Test 4: Anonymous Client ===${NC}"
@@ -108,7 +108,7 @@ echo "Requests without X-Client-ID header use 'anonymous' as client ID."
 echo ""
 
 echo -e "${YELLOW}Request without client ID:${NC}"
-response=$(nats request "api.getData" "{}" 2>&1 || true)
+response=$(nats request "services.api.get-data" "{}" 2>&1 || true)
 echo -e "${GREEN}← Response: ${response}${NC}"
 echo ""
 

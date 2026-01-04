@@ -265,15 +265,52 @@ func TestModule_handleGetStatus(t *testing.T) {
 	}
 }
 
+func TestModule_Health(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("before start", func(t *testing.T) {
+		m := NewModule(newMockLogger())
+
+		health := m.Health(ctx)
+
+		if health.Healthy {
+			t.Error("expected Healthy=false before Start()")
+		}
+		if health.Message != "not started" {
+			t.Errorf("expected Message 'not started', got %q", health.Message)
+		}
+	})
+
+	t.Run("after start", func(t *testing.T) {
+		m := NewModule(newMockLogger())
+		_ = m.Start(ctx)
+
+		health := m.Health(ctx)
+
+		if !health.Healthy {
+			t.Error("expected Healthy=true after Start()")
+		}
+		if health.Message != "operational" {
+			t.Errorf("expected Message 'operational', got %q", health.Message)
+		}
+		if health.Details == nil {
+			t.Error("expected non-nil Details")
+		}
+		if _, ok := health.Details["uptime"]; !ok {
+			t.Error("expected 'uptime' in Details")
+		}
+	})
+}
+
 func TestServiceConstants(t *testing.T) {
 	tests := []struct {
 		name     string
 		constant string
 		want     string
 	}{
-		{"ServiceGetData", ServiceGetData, "api.getData"},
-		{"ServiceCreateOrder", ServiceCreateOrder, "api.createOrder"},
-		{"ServiceGetStatus", ServiceGetStatus, "api.getStatus"},
+		{"ServiceGetData", ServiceGetData, "get-data"},
+		{"ServiceCreateOrder", ServiceCreateOrder, "create-order"},
+		{"ServiceGetStatus", ServiceGetStatus, "get-status"},
 	}
 
 	for _, tt := range tests {

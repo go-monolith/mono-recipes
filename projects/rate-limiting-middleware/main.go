@@ -37,10 +37,10 @@ func main() {
 		ratelimit.WithRedisPassword(redisPassword),
 		// Default: 100 requests per minute
 		ratelimit.WithDefaultLimit(100, time.Minute),
-		// api.getData: 100 requests per minute (uses default)
-		// api.createOrder: 50 requests per minute (more restrictive)
+		// get-data: 100 requests per minute (uses default)
+		// create-order: 50 requests per minute (more restrictive)
 		ratelimit.WithServiceLimit(api.ServiceCreateOrder, 50, time.Minute),
-		// api.getStatus: 200 requests per minute (less restrictive for health checks)
+		// get-status: 200 requests per minute (less restrictive for health checks)
 		ratelimit.WithServiceLimit(api.ServiceGetStatus, 200, time.Minute),
 	)
 	if err != nil {
@@ -71,7 +71,7 @@ func main() {
 			api.ServiceGetStatus + " (200 req/min)",
 		})
 	logger.Info("Use nats CLI to test the services",
-		"example", "nats request "+api.ServiceGetData+" '{}' --header X-Client-ID:client1")
+		"example", "nats request services.api."+api.ServiceGetData+" '{}' --header X-Client-ID:client1")
 	logger.Info("Press Ctrl+C to shutdown")
 
 	// Wait for shutdown signal

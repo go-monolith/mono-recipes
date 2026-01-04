@@ -56,8 +56,8 @@ func TestMiddleware_Name(t *testing.T) {
 func TestMiddleware_getLimitForService(t *testing.T) {
 	m, err := New(
 		WithDefaultLimit(100, time.Minute),
-		WithServiceLimit("api.getData", 50, 30*time.Second),
-		WithServiceLimit("api.createOrder", 10, 10*time.Second),
+		WithServiceLimit("get-data", 50, 30*time.Second),
+		WithServiceLimit("create-order", 10, 10*time.Second),
 	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -71,19 +71,19 @@ func TestMiddleware_getLimitForService(t *testing.T) {
 	}{
 		{
 			name:        "service with custom limit",
-			serviceName: "api.getData",
+			serviceName: "get-data",
 			wantLimit:   50,
 			wantWindow:  30 * time.Second,
 		},
 		{
 			name:        "another service with custom limit",
-			serviceName: "api.createOrder",
+			serviceName: "create-order",
 			wantLimit:   10,
 			wantWindow:  10 * time.Second,
 		},
 		{
 			name:        "service using default limit",
-			serviceName: "api.unknown",
+			serviceName: "unknown-service",
 			wantLimit:   100,
 			wantWindow:  time.Minute,
 		},

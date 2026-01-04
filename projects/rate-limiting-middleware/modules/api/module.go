@@ -13,9 +13,9 @@ import (
 
 // Service names for the API module.
 const (
-	ServiceGetData     = "api.getData"
-	ServiceCreateOrder = "api.createOrder"
-	ServiceGetStatus   = "api.getStatus"
+	ServiceGetData     = "get-data"
+	ServiceCreateOrder = "create-order"
+	ServiceGetStatus   = "get-status"
 )
 
 // Module implements the API service module.
@@ -26,8 +26,9 @@ type Module struct {
 
 // Compile-time interface checks
 var (
-	_ mono.Module                = (*Module)(nil)
-	_ mono.ServiceProviderModule = (*Module)(nil)
+	_ mono.Module                  = (*Module)(nil)
+	_ mono.ServiceProviderModule   = (*Module)(nil)
+	_ mono.HealthCheckableModule   = (*Module)(nil)
 )
 
 // NewModule creates a new API module.
@@ -57,7 +58,7 @@ func (m *Module) Stop(_ context.Context) error {
 
 // RegisterServices registers the API services.
 func (m *Module) RegisterServices(container mono.ServiceContainer) error {
-	// Register api.getData service
+	// Register get-data service
 	if err := container.RegisterRequestReplyService(
 		ServiceGetData,
 		m.handleGetData,
@@ -65,7 +66,7 @@ func (m *Module) RegisterServices(container mono.ServiceContainer) error {
 		return fmt.Errorf("failed to register %s: %w", ServiceGetData, err)
 	}
 
-	// Register api.createOrder service
+	// Register create-order service
 	if err := container.RegisterRequestReplyService(
 		ServiceCreateOrder,
 		m.handleCreateOrder,
@@ -73,7 +74,7 @@ func (m *Module) RegisterServices(container mono.ServiceContainer) error {
 		return fmt.Errorf("failed to register %s: %w", ServiceCreateOrder, err)
 	}
 
-	// Register api.getStatus service
+	// Register get-status service
 	if err := container.RegisterRequestReplyService(
 		ServiceGetStatus,
 		m.handleGetStatus,
@@ -86,7 +87,25 @@ func (m *Module) RegisterServices(container mono.ServiceContainer) error {
 	return nil
 }
 
-// handleGetData handles the api.getData request.
+// Health returns the current health status of the API module.
+func (m *Module) Health(_ context.Context) mono.HealthStatus {
+	if m.startTime.IsZero() {
+		return mono.HealthStatus{
+			Healthy: false,
+			Message: "not started",
+		}
+	}
+	uptime := time.Since(m.startTime)
+	return mono.HealthStatus{
+		Healthy: true,
+		Message: "operational",
+		Details: map[string]any{
+			"uptime": uptime.Round(time.Second).String(),
+		},
+	}
+}
+
+// handleGetData handles the get-data request.
 func (m *Module) handleGetData(_ context.Context, _ *types.Msg) ([]byte, error) {
 	// Simulate fetching data
 	response := DataResponse{
@@ -100,7 +119,7 @@ func (m *Module) handleGetData(_ context.Context, _ *types.Msg) ([]byte, error) 
 	return json.Marshal(response)
 }
 
-// handleCreateOrder handles the api.createOrder request.
+// handleCreateOrder handles the create-order request.
 func (m *Module) handleCreateOrder(_ context.Context, msg *types.Msg) ([]byte, error) {
 	var req OrderRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
@@ -134,7 +153,7 @@ func (m *Module) handleCreateOrder(_ context.Context, msg *types.Msg) ([]byte, e
 	return json.Marshal(response)
 }
 
-// handleGetStatus handles the api.getStatus request.
+// handleGetStatus handles the get-status request.
 func (m *Module) handleGetStatus(_ context.Context, _ *types.Msg) ([]byte, error) {
 	uptime := time.Since(m.startTime)
 

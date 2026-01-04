@@ -1,4 +1,4 @@
-// Package worker provides job processing with worker pool pattern.
+// Package worker provides job processing with QueueGroupService pattern.
 package worker
 
 import (
@@ -12,22 +12,22 @@ import (
 	"github.com/example/background-jobs-demo/domain/job"
 )
 
-// Processor processes jobs based on their type.
-type Processor struct {
-	workerID string
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }
 
+// Processor processes jobs based on their type.
+type Processor struct{}
+
 // NewProcessor creates a new job processor.
-func NewProcessor(workerID string) *Processor {
-	return &Processor{
-		workerID: workerID,
-	}
+func NewProcessor() *Processor {
+	return &Processor{}
 }
 
 // ProcessResult contains the result of processing a job.
 type ProcessResult struct {
 	Success bool
-	Result  interface{}
+	Result  any
 	Error   error
 }
 
@@ -53,11 +53,11 @@ func (p *Processor) processEmail(ctx context.Context, j *job.Job, progressFn fun
 		return &ProcessResult{Success: false, Error: err}, nil
 	}
 
-	log.Printf("[worker:%s] Processing email job %s: to=%s, subject=%s",
-		p.workerID, j.ID, payload.To, payload.Subject)
+	log.Printf("[worker] Processing email job %s: to=%s, subject=%s",
+		j.ID, payload.To, payload.Subject)
 
 	progressFn(10, "Validating email address")
-	if err := p.sleepWithContext(ctx, 200*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 200*time.Millisecond); err != nil {
 		return nil, err
 	}
 
@@ -70,22 +70,26 @@ func (p *Processor) processEmail(ctx context.Context, j *job.Job, progressFn fun
 	}
 
 	progressFn(30, "Connecting to SMTP server")
-	if err := p.sleepWithContext(ctx, 300*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 300*time.Millisecond); err != nil {
 		return nil, err
 	}
 
 	progressFn(60, "Sending email")
-	if err := p.sleepWithContext(ctx, 500*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 500*time.Millisecond); err != nil {
 		return nil, err
 	}
 
 	progressFn(90, "Confirming delivery")
-	if err := p.sleepWithContext(ctx, 200*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 200*time.Millisecond); err != nil {
 		return nil, err
 	}
 
-	result := map[string]interface{}{
-		"message_id": fmt.Sprintf("msg_%s", j.ID[:8]),
+	messageIDSuffix := j.ID
+	if len(j.ID) >= 8 {
+		messageIDSuffix = j.ID[:8]
+	}
+	result := map[string]any{
+		"message_id": fmt.Sprintf("msg_%s", messageIDSuffix),
 		"status":     "delivered",
 		"recipient":  payload.To,
 	}
@@ -101,11 +105,11 @@ func (p *Processor) processImageProcessing(ctx context.Context, j *job.Job, prog
 		return &ProcessResult{Success: false, Error: err}, nil
 	}
 
-	log.Printf("[worker:%s] Processing image job %s: url=%s, operations=%v",
-		p.workerID, j.ID, payload.ImageURL, payload.Operations)
+	log.Printf("[worker] Processing image job %s: url=%s, operations=%v",
+		j.ID, payload.ImageURL, payload.Operations)
 
 	progressFn(5, "Downloading image")
-	if err := p.sleepWithContext(ctx, 500*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 500*time.Millisecond); err != nil {
 		return nil, err
 	}
 
@@ -128,17 +132,17 @@ func (p *Processor) processImageProcessing(ctx context.Context, j *job.Job, prog
 	for i, op := range payload.Operations {
 		progress := 20 + (60 * (i + 1) / totalOps)
 		progressFn(progress, fmt.Sprintf("Applying operation: %s", op))
-		if err := p.sleepWithContext(ctx, 400*time.Millisecond); err != nil {
+		if err := sleepWithContext(ctx, 400*time.Millisecond); err != nil {
 			return nil, err
 		}
 	}
 
 	progressFn(85, "Saving processed image")
-	if err := p.sleepWithContext(ctx, 300*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 300*time.Millisecond); err != nil {
 		return nil, err
 	}
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"output_url":  payload.OutputPath,
 		"operations":  payload.Operations,
 		"size_before": "2.5MB",
@@ -156,11 +160,11 @@ func (p *Processor) processReportGeneration(ctx context.Context, j *job.Job, pro
 		return &ProcessResult{Success: false, Error: err}, nil
 	}
 
-	log.Printf("[worker:%s] Processing report job %s: type=%s, format=%s",
-		p.workerID, j.ID, payload.ReportType, payload.Format)
+	log.Printf("[worker] Processing report job %s: type=%s, format=%s",
+		j.ID, payload.ReportType, payload.Format)
 
 	progressFn(5, "Initializing report generator")
-	if err := p.sleepWithContext(ctx, 200*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 200*time.Millisecond); err != nil {
 		return nil, err
 	}
 
@@ -173,31 +177,31 @@ func (p *Processor) processReportGeneration(ctx context.Context, j *job.Job, pro
 	}
 
 	progressFn(15, "Querying database")
-	if err := p.sleepWithContext(ctx, 800*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 800*time.Millisecond); err != nil {
 		return nil, err
 	}
 
 	progressFn(35, "Processing data")
-	if err := p.sleepWithContext(ctx, 600*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 600*time.Millisecond); err != nil {
 		return nil, err
 	}
 
 	progressFn(55, "Generating charts")
-	if err := p.sleepWithContext(ctx, 500*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 500*time.Millisecond); err != nil {
 		return nil, err
 	}
 
 	progressFn(75, "Formatting output")
-	if err := p.sleepWithContext(ctx, 400*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 400*time.Millisecond); err != nil {
 		return nil, err
 	}
 
 	progressFn(90, "Saving report")
-	if err := p.sleepWithContext(ctx, 300*time.Millisecond); err != nil {
+	if err := sleepWithContext(ctx, 300*time.Millisecond); err != nil {
 		return nil, err
 	}
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"report_type":  payload.ReportType,
 		"format":       payload.Format,
 		"download_url": fmt.Sprintf("/reports/%s.%s", j.ID, payload.Format),
@@ -210,7 +214,7 @@ func (p *Processor) processReportGeneration(ctx context.Context, j *job.Job, pro
 }
 
 // sleepWithContext sleeps for the duration or until context is cancelled.
-func (p *Processor) sleepWithContext(ctx context.Context, d time.Duration) error {
+func sleepWithContext(ctx context.Context, d time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

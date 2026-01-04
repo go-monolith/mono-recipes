@@ -100,12 +100,6 @@ type JobListResponse struct {
 	Limit  int    `json:"limit"`
 }
 
-// JobMessage represents a job message in the queue.
-type JobMessage struct {
-	Job       *Job   `json:"job"`
-	MessageID string `json:"message_id"`
-}
-
 // Validate validates the CreateJobRequest.
 func (r *CreateJobRequest) Validate() error {
 	if r.Type == "" {

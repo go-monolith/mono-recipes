@@ -175,22 +175,6 @@ func (s *Store) SetFailed(id string, errMsg string) error {
 	return nil
 }
 
-// IncrementRetry increments the retry count for a job.
-func (s *Store) IncrementRetry(id string) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	job, exists := s.jobs[id]
-	if !exists {
-		return 0, ErrJobNotFound
-	}
-
-	job.RetryCount++
-	job.Status = JobStatusPending
-	job.UpdatedAt = time.Now()
-	return job.RetryCount, nil
-}
-
 // SetDeadLetter marks a job as dead-letter.
 func (s *Store) SetDeadLetter(id string, reason string) error {
 	s.mu.Lock()

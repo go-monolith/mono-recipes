@@ -35,18 +35,22 @@ func main() {
 	// - Room management (create, list, join, leave)
 	// - Message broadcasting via EventBus
 	// - Message history storage
+	// - Exposes services via ServiceProviderModule for inter-module communication
 	chatModule := chat.NewModule(logger)
 
 	// The WebSocket server module handles:
 	// - WebSocket connections and message handling
 	// - REST API for room management
-	// - Broadcasting messages to connected clients
-	wsServerModule := wsserver.NewModule(httpAddr, chatModule, logger)
+	// - Broadcasting messages to connected clients via event consumption
+	// - Uses DependentModule to receive chat service container
+	wsServerModule := wsserver.NewModule(httpAddr, logger)
 
 	// Register modules
 	// The framework handles:
-	// 1. EventBus wiring (chat emits events, chat consumes for history)
-	// 2. Lifecycle management (Start/Stop in correct order)
+	// 1. Dependency injection (wsserver depends on chat, receives ServiceContainer)
+	// 2. EventBus wiring (chat emits events, wsserver consumes for broadcasting)
+	// 3. Service registration (chat registers Request-Reply services)
+	// 4. Lifecycle management (Start/Stop in correct order based on dependencies)
 	app.Register(chatModule)
 	app.Register(wsServerModule)
 

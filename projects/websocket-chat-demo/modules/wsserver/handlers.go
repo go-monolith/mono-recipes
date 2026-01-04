@@ -1,6 +1,7 @@
 package wsserver
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
@@ -77,34 +78,57 @@ func (r *rateLimiter) allow() bool {
 	return false
 }
 
+// connWrapper wraps a WebSocket connection with a mutex for thread-safe writes.
+type connWrapper struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+// WriteMessage writes a message to the WebSocket connection in a thread-safe manner.
+func (cw *connWrapper) WriteMessage(messageType int, data []byte) error {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	return cw.conn.WriteMessage(messageType, data)
+}
+
 // Handlers contains HTTP and WebSocket handlers.
 type Handlers struct {
-	chatModule   *chat.Module
-	connections  sync.Map // userID -> *websocket.Conn
+	chatAdapter  *chat.ServiceAdapter
+	connections  sync.Map // userID -> *connWrapper
+	userRooms    sync.Map // userID -> roomID (for broadcast lookups)
 	rateLimiters sync.Map // userID -> *rateLimiter
 	logger       *slog.Logger
 }
 
 // NewHandlers creates a new handlers instance.
-func NewHandlers(chatModule *chat.Module) *Handlers {
+func NewHandlers(chatAdapter *chat.ServiceAdapter) *Handlers {
 	return &Handlers{
-		chatModule: chatModule,
-		logger:     slog.Default(),
+		chatAdapter: chatAdapter,
+		logger:      slog.Default(),
 	}
 }
 
 // HandleWebSocket handles WebSocket connections.
 func (h *Handlers) HandleWebSocket(c *websocket.Conn) {
 	userID := uuid.New().String()
-	h.connections.Store(userID, c)
+	cw := &connWrapper{conn: c}
+	h.connections.Store(userID, cw)
 
 	// Create rate limiter for this user
 	h.rateLimiters.Store(userID, newRateLimiter(burstSize, messagesPerSecond))
 
 	defer func() {
+		// Only leave room if user actually joined one
+		if _, inRoom := h.userRooms.Load(userID); inRoom {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := h.chatAdapter.LeaveRoom(ctx, userID); err != nil {
+				h.logger.Error("Failed to leave room on disconnect", "userID", userID, "error", err)
+			}
+		}
 		h.connections.Delete(userID)
+		h.userRooms.Delete(userID)
 		h.rateLimiters.Delete(userID)
-		h.chatModule.LeaveRoom(userID)
 		c.Close()
 	}()
 
@@ -113,7 +137,7 @@ func (h *Handlers) HandleWebSocket(c *websocket.Conn) {
 	for {
 		_, msgBytes, err := c.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				h.logger.Error("WebSocket error", "userID", userID, "error", err)
 			}
 			break
@@ -121,181 +145,220 @@ func (h *Handlers) HandleWebSocket(c *websocket.Conn) {
 
 		var msg WebSocketMessage
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			h.sendError(c, "Invalid message format")
+			h.sendErrorToWrapper(cw, "Invalid message format")
 			continue
 		}
 
-		h.handleMessage(c, userID, msg)
+		h.handleMessage(cw, userID, msg)
 	}
 
 	h.logger.Info("WebSocket disconnected", "userID", userID)
 }
 
 // handleMessage processes incoming WebSocket messages.
-func (h *Handlers) handleMessage(c *websocket.Conn, userID string, msg WebSocketMessage) {
+func (h *Handlers) handleMessage(cw *connWrapper, userID string, msg WebSocketMessage) {
 	switch msg.Type {
 	case "join":
-		h.handleJoin(c, userID, msg.Payload)
+		h.handleJoin(cw, userID, msg.Payload)
 	case "leave":
-		h.handleLeave(c, userID)
+		h.handleLeave(cw, userID)
 	case "message":
-		h.handleChatMessage(c, userID, msg.Payload)
+		h.handleChatMessage(cw, userID, msg.Payload)
 	case "history":
-		h.handleHistory(c, userID)
+		h.handleHistory(cw, userID)
 	case "users":
-		h.handleUsers(c, userID)
+		h.handleUsers(cw, userID)
 	case "rooms":
-		h.handleRooms(c)
+		h.handleRooms(cw)
 	default:
-		h.sendError(c, "Unknown message type: "+msg.Type)
+		h.sendErrorToWrapper(cw, "Unknown message type: "+msg.Type)
 	}
 }
 
 // handleJoin processes join room requests.
-func (h *Handlers) handleJoin(c *websocket.Conn, userID string, payload json.RawMessage) {
+func (h *Handlers) handleJoin(cw *connWrapper, userID string, payload json.RawMessage) {
 	var req JoinPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
-		h.sendError(c, "Invalid join payload")
+		h.sendErrorToWrapper(cw, "Invalid join payload")
 		return
 	}
 
 	if req.RoomID == "" || req.Username == "" {
-		h.sendError(c, "room_id and username are required")
+		h.sendErrorToWrapper(cw, "room_id and username are required")
 		return
 	}
 
-	user, err := h.chatModule.JoinRoom(req.RoomID, userID, req.Username)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user, err := h.chatAdapter.JoinRoom(ctx, req.RoomID, userID, req.Username)
 	if err != nil {
-		h.sendError(c, err.Error())
+		h.sendErrorToWrapper(cw, err.Error())
 		return
 	}
 
-	// Send confirmation
-	h.sendMessage(c, "joined", user)
+	// Track user's room for broadcasts
+	h.userRooms.Store(userID, req.RoomID)
 
-	// Broadcast to room that user joined
-	h.broadcastToRoom(req.RoomID, "user_joined", chat.Message{
-		RoomID:   req.RoomID,
-		UserID:   userID,
-		Username: req.Username,
-		Content:  req.Username + " joined the room",
-		Type:     "join",
-	})
+	// Send confirmation to this user
+	h.sendMessageToWrapper(cw, "joined", user)
+
+	// Note: Broadcast is handled by event consumer in module.go
 }
 
 // handleLeave processes leave room requests.
-func (h *Handlers) handleLeave(c *websocket.Conn, userID string) {
-	user, exists := h.chatModule.Store().GetUser(userID)
+func (h *Handlers) handleLeave(cw *connWrapper, userID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	if err != nil {
+		h.sendErrorToWrapper(cw, "Failed to get user")
+		return
+	}
 	if !exists {
-		h.sendError(c, "Not in a room")
+		h.sendErrorToWrapper(cw, "Not in a room")
 		return
 	}
 
 	roomID := user.RoomID
-	username := user.Username
-	h.chatModule.LeaveRoom(userID)
+	if err := h.chatAdapter.LeaveRoom(ctx, userID); err != nil {
+		h.sendErrorToWrapper(cw, err.Error())
+		return
+	}
+
+	// Clear user's room tracking
+	h.userRooms.Delete(userID)
 
 	// Send confirmation
-	h.sendMessage(c, "left", map[string]string{"room_id": roomID})
+	h.sendMessageToWrapper(cw, "left", map[string]string{"room_id": roomID})
 
-	// Broadcast to room that user left
-	h.broadcastToRoom(roomID, "user_left", chat.Message{
-		RoomID:   roomID,
-		UserID:   userID,
-		Username: username,
-		Content:  username + " left the room",
-		Type:     "leave",
-	})
+	// Note: Broadcast is handled by event consumer in module.go
 }
 
 // handleChatMessage processes chat messages.
-func (h *Handlers) handleChatMessage(c *websocket.Conn, userID string, payload json.RawMessage) {
+func (h *Handlers) handleChatMessage(cw *connWrapper, userID string, payload json.RawMessage) {
 	// Rate limit check
 	if limiterVal, ok := h.rateLimiters.Load(userID); ok {
 		limiter := limiterVal.(*rateLimiter)
 		if !limiter.allow() {
-			h.sendError(c, "Rate limit exceeded, please slow down")
+			h.sendErrorToWrapper(cw, "Rate limit exceeded, please slow down")
 			return
 		}
 	}
 
 	var req MessagePayload
 	if err := json.Unmarshal(payload, &req); err != nil {
-		h.sendError(c, "Invalid message payload")
+		h.sendErrorToWrapper(cw, "Invalid message payload")
 		return
 	}
 
 	if req.Content == "" {
-		h.sendError(c, "Message content is required")
+		h.sendErrorToWrapper(cw, "Message content is required")
 		return
 	}
 
-	user, exists := h.chatModule.Store().GetUser(userID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	if err != nil {
+		h.sendErrorToWrapper(cw, "Failed to get user")
+		return
+	}
 	if !exists {
-		h.sendError(c, "Not in a room")
+		h.sendErrorToWrapper(cw, "Not in a room")
 		return
 	}
 
-	if err := h.chatModule.SendMessage(userID, req.Content); err != nil {
-		h.sendError(c, err.Error())
+	if err := h.chatAdapter.SendMessage(ctx, userID, req.Content); err != nil {
+		h.sendErrorToWrapper(cw, err.Error())
 		return
 	}
 
-	// Broadcast message to room
-	h.broadcastToRoom(user.RoomID, "chat_message", chat.Message{
-		RoomID:   user.RoomID,
-		UserID:   userID,
-		Username: user.Username,
-		Content:  req.Content,
-		Type:     "message",
-	})
+	// Note: Broadcast is handled by event consumer in module.go
+	_ = user // user info available if needed for response
 }
 
 // handleHistory sends message history to the client.
-func (h *Handlers) handleHistory(c *websocket.Conn, userID string) {
-	user, exists := h.chatModule.Store().GetUser(userID)
+func (h *Handlers) handleHistory(cw *connWrapper, userID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	if err != nil {
+		h.sendErrorToWrapper(cw, "Failed to get user")
+		return
+	}
 	if !exists {
-		h.sendError(c, "Not in a room")
+		h.sendErrorToWrapper(cw, "Not in a room")
 		return
 	}
 
-	history := h.chatModule.GetHistory(user.RoomID, 50)
-	h.sendMessage(c, "history", history)
+	history, err := h.chatAdapter.GetHistory(ctx, user.RoomID, 50)
+	if err != nil {
+		h.sendErrorToWrapper(cw, "Failed to get history")
+		return
+	}
+	h.sendMessageToWrapper(cw, "history", history)
 }
 
 // handleUsers sends list of users in the room.
-func (h *Handlers) handleUsers(c *websocket.Conn, userID string) {
-	user, exists := h.chatModule.Store().GetUser(userID)
+func (h *Handlers) handleUsers(cw *connWrapper, userID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	if err != nil {
+		h.sendErrorToWrapper(cw, "Failed to get user")
+		return
+	}
 	if !exists {
-		h.sendError(c, "Not in a room")
+		h.sendErrorToWrapper(cw, "Not in a room")
 		return
 	}
 
-	users := h.chatModule.GetRoomUsers(user.RoomID)
-	h.sendMessage(c, "users", users)
+	users, err := h.chatAdapter.GetRoomUsers(ctx, user.RoomID)
+	if err != nil {
+		h.sendErrorToWrapper(cw, "Failed to get users")
+		return
+	}
+	h.sendMessageToWrapper(cw, "users", users)
 }
 
 // handleRooms sends list of available rooms.
-func (h *Handlers) handleRooms(c *websocket.Conn) {
-	rooms := h.chatModule.ListRooms()
-	h.sendMessage(c, "rooms", rooms)
+func (h *Handlers) handleRooms(cw *connWrapper) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rooms, err := h.chatAdapter.ListRooms(ctx)
+	if err != nil {
+		h.sendErrorToWrapper(cw, "Failed to get rooms")
+		return
+	}
+	h.sendMessageToWrapper(cw, "rooms", rooms)
 }
 
-// broadcastToRoom sends a message to all users in a room.
-func (h *Handlers) broadcastToRoom(roomID string, msgType string, data any) {
-	users := h.chatModule.GetRoomUsers(roomID)
+// BroadcastToRoom sends a message to all users in a room.
+// This is exported for use by the module's event consumers.
+func (h *Handlers) BroadcastToRoom(roomID string, msgType string, data any) {
+	// Iterate over all connections and send to those in the room
+	h.connections.Range(func(key, value any) bool {
+		userID := key.(string)
+		cw := value.(*connWrapper)
 
-	for _, user := range users {
-		if conn, ok := h.connections.Load(user.ID); ok {
-			if ws, ok := conn.(*websocket.Conn); ok {
-				h.sendMessage(ws, msgType, data)
+		// Check if this user is in the target room
+		if room, ok := h.userRooms.Load(userID); ok {
+			if room.(string) == roomID {
+				h.sendMessageToWrapper(cw, msgType, data)
 			}
 		}
-	}
+		return true
+	})
 }
 
-// sendMessage sends a typed message to a WebSocket connection.
-func (h *Handlers) sendMessage(c *websocket.Conn, msgType string, data any) {
+// sendMessageToWrapper sends a typed message to a WebSocket connection using the thread-safe wrapper.
+func (h *Handlers) sendMessageToWrapper(cw *connWrapper, msgType string, data any) {
 	payload, err := json.Marshal(data)
 	if err != nil {
 		h.logger.Error("Failed to marshal message", "error", err)
@@ -313,13 +376,13 @@ func (h *Handlers) sendMessage(c *websocket.Conn, msgType string, data any) {
 		return
 	}
 
-	if err := c.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
+	if err := cw.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
 		h.logger.Error("Failed to send WebSocket message", "error", err)
 	}
 }
 
-// sendError sends an error message to a WebSocket connection.
-func (h *Handlers) sendError(c *websocket.Conn, errMsg string) {
+// sendErrorToWrapper sends an error message to a WebSocket connection using the thread-safe wrapper.
+func (h *Handlers) sendErrorToWrapper(cw *connWrapper, errMsg string) {
 	msg := WebSocketMessage{
 		Type:  "error",
 		Error: errMsg,
@@ -331,7 +394,7 @@ func (h *Handlers) sendError(c *websocket.Conn, errMsg string) {
 		return
 	}
 
-	if err := c.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
+	if err := cw.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
 		h.logger.Error("Failed to send error message", "error", err)
 	}
 }
@@ -340,7 +403,15 @@ func (h *Handlers) sendError(c *websocket.Conn, errMsg string) {
 
 // ListRooms handles room listing requests (GET /api/v1/rooms).
 func (h *Handlers) ListRooms(c *fiber.Ctx) error {
-	rooms := h.chatModule.ListRooms()
+	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	defer cancel()
+
+	rooms, err := h.chatAdapter.ListRooms(ctx)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to list rooms",
+		})
+	}
 	return c.JSON(fiber.Map{
 		"rooms": rooms,
 		"total": len(rooms),
@@ -356,7 +427,10 @@ func (h *Handlers) CreateRoom(c *fiber.Ctx) error {
 		})
 	}
 
-	room, err := h.chatModule.CreateRoom(req.Name)
+	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	defer cancel()
+
+	room, err := h.chatAdapter.CreateRoom(ctx, req.Name)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -374,7 +448,16 @@ func (h *Handlers) GetRoomHistory(c *fiber.Ctx) error {
 		})
 	}
 
-	if _, exists := h.chatModule.GetRoom(roomID); !exists {
+	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	defer cancel()
+
+	_, exists, err := h.chatAdapter.GetRoom(ctx, roomID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get room",
+		})
+	}
+	if !exists {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Room not found",
 		})
@@ -385,7 +468,12 @@ func (h *Handlers) GetRoomHistory(c *fiber.Ctx) error {
 		limit = 100
 	}
 
-	history := h.chatModule.GetHistory(roomID, limit)
+	history, err := h.chatAdapter.GetHistory(ctx, roomID, limit)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get history",
+		})
+	}
 	return c.JSON(fiber.Map{
 		"room_id":  roomID,
 		"messages": history,

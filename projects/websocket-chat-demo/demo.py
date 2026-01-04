@@ -17,25 +17,40 @@ import asyncio
 import json
 import random
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime
+from typing import Union, List, Dict, Any
+from urllib.parse import urlparse
 
 try:
     import websockets
 except ImportError:
-    print("Error: websockets library required. Install with: pip install websockets")
+    try:
+        from colorama import Fore, Style
+        print(f"{Fore.RED}Error: websockets library required. Install with: pip install websockets{Style.RESET_ALL}")
+    except ImportError:
+        print("Error: websockets library required. Install with: pip install websockets")
     sys.exit(1)
 
 try:
     from colorama import Fore, Style, init
     init()
-    COLORS = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
+    # Exclude RED from user colors - reserved for errors only
+    COLORS = [Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
 except ImportError:
     print("Warning: colorama not installed. Output will not be colored.")
-    COLORS = [""] * 6
+    COLORS = [""] * 5
     class Style:
         RESET_ALL = ""
     class Fore:
         WHITE = ""
+        RED = ""
+        GREEN = ""
+        YELLOW = ""
+        BLUE = ""
+        MAGENTA = ""
+        CYAN = ""
 
 # Sample usernames
 USERNAMES = [
@@ -78,12 +93,51 @@ class ChatClient:
         self.ws = None
         self.room_id = None
         self.running = True
-        self.message_queue = asyncio.Queue()
 
     def log(self, message: str):
         """Print a colored log message."""
         timestamp = datetime.now().strftime("%H:%M:%S")
         print(f"{self.color}[{timestamp}] {self.username}: {message}{Style.RESET_ALL}")
+
+    def log_error(self, message: str):
+        """Print a colored error message."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"{Fore.RED}[{timestamp}] {self.username}: {message}{Style.RESET_ALL}")
+
+    def _extract_usernames(self, payload: Union[List[str], Dict[str, Any]]) -> List[str]:
+        """Extract usernames from users payload (handles multiple formats).
+
+        Supports:
+        - List format: ["Alice", "Bob", "Charlie"]
+        - Dict format with strings: {"users": ["Alice", "Bob"]}
+        - Dict format with objects: {"users": [{"username": "Alice"}, {"username": "Bob"}]}
+
+        Args:
+            payload: Server response containing user information
+
+        Returns:
+            List of username strings, empty list if format is unexpected
+        """
+        if isinstance(payload, list):
+            # Validate all items are strings
+            return [u for u in payload if isinstance(u, str)]
+
+        if not isinstance(payload, dict):
+            return []  # Handle unexpected types gracefully
+
+        users = payload.get("users", [])
+        if not isinstance(users, list):
+            return []
+
+        result = []
+        for u in users:
+            if isinstance(u, dict):
+                username = u.get("username")
+                if isinstance(username, str):
+                    result.append(username)
+            elif isinstance(u, str):
+                result.append(u)
+        return result
 
     async def connect(self):
         """Establish WebSocket connection."""
@@ -92,7 +146,7 @@ class ChatClient:
             self.log("Connected to server")
             return True
         except Exception as e:
-            self.log(f"Failed to connect: {e}")
+            self.log_error(f"Failed to connect: {e}")
             return False
 
     async def join_room(self, room_id: str):
@@ -146,34 +200,45 @@ class ChatClient:
                     payload = data.get("payload", {})
 
                     if msg_type == "joined":
-                        self.log(f"Successfully joined room '{payload.get('room_id')}'")
+                        if isinstance(payload, dict):
+                            self.log(f"Successfully joined room '{payload.get('room_id')}'")
                     elif msg_type == "user_joined":
-                        if payload.get("username") != self.username:
+                        if isinstance(payload, dict) and payload.get("username") != self.username:
                             self.log(f"📥 {payload.get('username')} joined the room")
                     elif msg_type == "user_left":
-                        self.log(f"📤 {payload.get('username')} left the room")
+                        if isinstance(payload, dict):
+                            self.log(f"📤 {payload.get('username')} left the room")
                     elif msg_type == "chat_message":
-                        sender = payload.get("username", "Unknown")
-                        content = payload.get("content", "")
-                        if sender != self.username:
-                            self.log(f"💬 {sender}: {content}")
+                        if isinstance(payload, dict):
+                            sender = payload.get("username", "Unknown")
+                            content = payload.get("content", "")
+                            if sender != self.username:
+                                self.log(f"💬 {sender}: {content}")
                     elif msg_type == "history":
-                        messages = payload.get("messages", [])
-                        if messages:
+                        # Handle both formats: payload as list or payload as dict with "messages" key
+                        if isinstance(payload, list):
+                            messages = payload
+                        elif isinstance(payload, dict):
+                            messages = payload.get("messages", [])
+                        else:
+                            messages = []
+
+                        # Validate messages is a list before using it
+                        if isinstance(messages, list) and messages:
                             self.log(f"📜 History: {len(messages)} messages")
                     elif msg_type == "users":
-                        users = payload.get("users", [])
-                        usernames = [u.get("username") for u in users]
+                        usernames = self._extract_usernames(payload)
                         self.log(f"👥 Users in room: {', '.join(usernames)}")
                     elif msg_type == "error":
-                        self.log(f"❌ Error: {payload.get('message', 'Unknown error')}")
+                        if isinstance(payload, dict):
+                            self.log_error(f"❌ Error: {payload.get('message', 'Unknown error')}")
 
                 except json.JSONDecodeError:
-                    self.log(f"Invalid JSON received: {raw_message}")
+                    self.log_error(f"Invalid JSON received: {raw_message}")
         except websockets.exceptions.ConnectionClosed:
             self.log("Connection closed")
         except Exception as e:
-            self.log(f"Listen error: {e}")
+            self.log_error(f"Listen error: {e}")
 
     async def close(self):
         """Close the WebSocket connection."""
@@ -182,13 +247,21 @@ class ChatClient:
             await self.ws.close()
 
 
-async def ensure_room_exists(server_url: str, room_id: str, room_name: str):
+async def ensure_room_exists(server_url: str, room_name: str):
     """Create the room via REST API if it doesn't exist."""
-    import urllib.request
-    import urllib.error
+    # Validate URL scheme
+    parsed = urlparse(server_url)
+    if parsed.scheme not in ('ws', 'wss', 'http', 'https'):
+        print(f"{Fore.RED}⚠ Invalid server URL scheme: {parsed.scheme}{Style.RESET_ALL}")
+        return
+
+    if not parsed.netloc:
+        print(f"{Fore.RED}⚠ Invalid server URL: missing host{Style.RESET_ALL}")
+        return
 
     # Convert ws:// to http://
-    http_url = server_url.replace("ws://", "http://").replace("/ws", "")
+    http_scheme = 'https' if parsed.scheme == 'wss' else 'http'
+    http_url = f"{http_scheme}://{parsed.netloc}{parsed.path.replace('/ws', '')}"
     api_url = f"{http_url}/api/v1/rooms"
 
     try:
@@ -200,15 +273,15 @@ async def ensure_room_exists(server_url: str, room_id: str, room_name: str):
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        urllib.request.urlopen(req, timeout=5)
+        urllib.request.urlopen(req, timeout=2)
         print(f"{Fore.WHITE}✓ Created room '{room_name}'{Style.RESET_ALL}")
     except urllib.error.HTTPError as e:
         if e.code == 409:
             print(f"{Fore.WHITE}✓ Room '{room_name}' already exists{Style.RESET_ALL}")
         else:
-            print(f"{Fore.WHITE}⚠ Could not create room: {e}{Style.RESET_ALL}")
+            print(f"{Fore.RED}⚠ Could not create room: {e}{Style.RESET_ALL}")
     except Exception as e:
-        print(f"{Fore.WHITE}⚠ Room creation skipped: {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}⚠ Room creation skipped: {e}{Style.RESET_ALL}")
 
 
 async def simulate_chat(client: ChatClient, room_id: str, num_messages: int):
@@ -265,7 +338,7 @@ async def run_demo(server_url: str, room_id: str, num_users: int, num_messages: 
     print(f"{'='*60}\n")
 
     # Ensure room exists
-    await ensure_room_exists(server_url, room_id, room_id.capitalize())
+    await ensure_room_exists(server_url, room_id.capitalize())
 
     # Select random usernames
     selected_users = random.sample(USERNAMES, min(num_users, len(USERNAMES)))
@@ -322,15 +395,15 @@ def main():
     args = parser.parse_args()
 
     if args.users < 1:
-        print("Error: Must have at least 1 user")
+        print(f"{Fore.RED}Error: Must have at least 1 user{Style.RESET_ALL}")
         sys.exit(1)
 
     if args.users > len(USERNAMES):
-        print(f"Error: Maximum {len(USERNAMES)} users supported")
+        print(f"{Fore.RED}Error: Maximum {len(USERNAMES)} users supported{Style.RESET_ALL}")
         sys.exit(1)
 
     if args.messages < 1:
-        print("Error: Must send at least 1 message")
+        print(f"{Fore.RED}Error: Must send at least 1 message{Style.RESET_ALL}")
         sys.exit(1)
 
     try:
@@ -343,7 +416,7 @@ def main():
     except KeyboardInterrupt:
         print(f"\n{Fore.WHITE}Demo interrupted by user{Style.RESET_ALL}")
     except Exception as e:
-        print(f"\n{Fore.WHITE}Error: {e}{Style.RESET_ALL}")
+        print(f"\n{Fore.RED}Error: {e}{Style.RESET_ALL}")
         sys.exit(1)
 
 

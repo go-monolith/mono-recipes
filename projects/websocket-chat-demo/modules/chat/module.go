@@ -4,12 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/go-monolith/mono"
 	"github.com/go-monolith/mono/pkg/types"
 	"github.com/google/uuid"
+)
+
+// Service names for Request-Reply services.
+const (
+	ServiceCreateRoom   = "create-room"
+	ServiceGetRoom      = "get-room"
+	ServiceListRooms    = "list-rooms"
+	ServiceJoinRoom     = "join-room"
+	ServiceLeaveRoom    = "leave-room"
+	ServiceSendMessage  = "send-message"
+	ServiceGetUser      = "get-user"
+	ServiceGetHistory   = "get-history"
+	ServiceGetRoomUsers = "get-room-users"
 )
 
 // Module implements the chat room module with EventBus integration.
@@ -21,10 +33,11 @@ type Module struct {
 
 // Compile-time interface checks
 var (
-	_ mono.Module              = (*Module)(nil)
-	_ mono.EventBusAwareModule = (*Module)(nil)
-	_ mono.EventEmitterModule  = (*Module)(nil)
-	_ mono.EventConsumerModule = (*Module)(nil)
+	_ mono.Module                 = (*Module)(nil)
+	_ mono.EventBusAwareModule    = (*Module)(nil)
+	_ mono.EventEmitterModule     = (*Module)(nil)
+	_ mono.EventConsumerModule    = (*Module)(nil)
+	_ mono.ServiceProviderModule  = (*Module)(nil)
 )
 
 // NewModule creates a new chat module.
@@ -158,7 +171,7 @@ func (m *Module) JoinRoom(roomID, userID, username string) (*User, error) {
 	}
 
 	if err := UserJoinedV1.Publish(m.eventBus, event, nil); err != nil {
-		slog.Warn("Failed to publish UserJoined event", "error", err)
+		m.logger.Warn("Failed to publish UserJoined event", "error", err)
 	}
 
 	m.logger.Info("User joined room", "userID", userID, "roomID", roomID)
@@ -191,7 +204,7 @@ func (m *Module) LeaveRoom(userID string) {
 	}
 
 	if err := UserLeftV1.Publish(m.eventBus, event, nil); err != nil {
-		slog.Warn("Failed to publish UserLeft event", "error", err)
+		m.logger.Warn("Failed to publish UserLeft event", "error", err)
 	}
 
 	m.logger.Info("User left room", "userID", userID, "roomID", roomID)
@@ -246,4 +259,227 @@ func (m *Module) GetHistory(roomID string, limit int) []Message {
 // GetRoomUsers returns all users in a room.
 func (m *Module) GetRoomUsers(roomID string) []User {
 	return m.store.GetRoomUsers(roomID)
+}
+
+// RegisterServices registers Request-Reply services for inter-module communication.
+func (m *Module) RegisterServices(container mono.ServiceContainer) error {
+	services := []struct {
+		name    string
+		handler mono.RequestReplyHandler
+	}{
+		{ServiceCreateRoom, m.handleCreateRoom},
+		{ServiceGetRoom, m.handleGetRoom},
+		{ServiceListRooms, m.handleListRooms},
+		{ServiceJoinRoom, m.handleJoinRoom},
+		{ServiceLeaveRoom, m.handleLeaveRoom},
+		{ServiceSendMessage, m.handleSendMessage},
+		{ServiceGetUser, m.handleGetUser},
+		{ServiceGetHistory, m.handleGetHistory},
+		{ServiceGetRoomUsers, m.handleGetRoomUsers},
+	}
+
+	for _, svc := range services {
+		if err := container.RegisterRequestReplyService(svc.name, svc.handler); err != nil {
+			return fmt.Errorf("failed to register service %s: %w", svc.name, err)
+		}
+	}
+
+	m.logger.Info("Registered chat services", "count", len(services))
+	return nil
+}
+
+// Service request/response types
+
+// CreateRoomServiceRequest is the request for creating a room via service.
+type CreateRoomServiceRequest struct {
+	Name string `json:"name"`
+}
+
+// CreateRoomServiceResponse is the response for creating a room via service.
+type CreateRoomServiceResponse struct {
+	Room  *Room  `json:"room,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// GetRoomServiceRequest is the request for getting a room via service.
+type GetRoomServiceRequest struct {
+	RoomID string `json:"room_id"`
+}
+
+// GetRoomServiceResponse is the response for getting a room via service.
+type GetRoomServiceResponse struct {
+	Room   *Room  `json:"room,omitempty"`
+	Exists bool   `json:"exists"`
+	Error  string `json:"error,omitempty"`
+}
+
+// ListRoomsServiceResponse is the response for listing rooms via service.
+type ListRoomsServiceResponse struct {
+	Rooms []Room `json:"rooms"`
+}
+
+// JoinRoomServiceRequest is the request for joining a room via service.
+type JoinRoomServiceRequest struct {
+	RoomID   string `json:"room_id"`
+	UserID   string `json:"user_id"`
+	Username string `json:"username"`
+}
+
+// JoinRoomServiceResponse is the response for joining a room via service.
+type JoinRoomServiceResponse struct {
+	User  *User  `json:"user,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// LeaveRoomServiceRequest is the request for leaving a room via service.
+type LeaveRoomServiceRequest struct {
+	UserID string `json:"user_id"`
+}
+
+// LeaveRoomServiceResponse is the response for leaving a room via service.
+type LeaveRoomServiceResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// SendMessageServiceRequest is the request for sending a message via service.
+type SendMessageServiceRequest struct {
+	UserID  string `json:"user_id"`
+	Content string `json:"content"`
+}
+
+// SendMessageServiceResponse is the response for sending a message via service.
+type SendMessageServiceResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// GetUserServiceRequest is the request for getting a user via service.
+type GetUserServiceRequest struct {
+	UserID string `json:"user_id"`
+}
+
+// GetUserServiceResponse is the response for getting a user via service.
+type GetUserServiceResponse struct {
+	User   *User  `json:"user,omitempty"`
+	Exists bool   `json:"exists"`
+	Error  string `json:"error,omitempty"`
+}
+
+// GetHistoryServiceRequest is the request for getting message history via service.
+type GetHistoryServiceRequest struct {
+	RoomID string `json:"room_id"`
+	Limit  int    `json:"limit"`
+}
+
+// GetHistoryServiceResponse is the response for getting message history via service.
+type GetHistoryServiceResponse struct {
+	Messages []Message `json:"messages"`
+	Error    string    `json:"error,omitempty"`
+}
+
+// GetRoomUsersServiceRequest is the request for getting room users via service.
+type GetRoomUsersServiceRequest struct {
+	RoomID string `json:"room_id"`
+}
+
+// GetRoomUsersServiceResponse is the response for getting room users via service.
+type GetRoomUsersServiceResponse struct {
+	Users []User `json:"users"`
+	Error string `json:"error,omitempty"`
+}
+
+// Service handlers
+
+func (m *Module) handleCreateRoom(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req CreateRoomServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(CreateRoomServiceResponse{Error: "invalid request"})
+	}
+
+	room, err := m.CreateRoom(req.Name)
+	if err != nil {
+		return json.Marshal(CreateRoomServiceResponse{Error: err.Error()})
+	}
+	return json.Marshal(CreateRoomServiceResponse{Room: room})
+}
+
+func (m *Module) handleGetRoom(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req GetRoomServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(GetRoomServiceResponse{Error: "invalid request"})
+	}
+
+	room, exists := m.GetRoom(req.RoomID)
+	return json.Marshal(GetRoomServiceResponse{Room: room, Exists: exists})
+}
+
+func (m *Module) handleListRooms(_ context.Context, _ *mono.Msg) ([]byte, error) {
+	rooms := m.ListRooms()
+	return json.Marshal(ListRoomsServiceResponse{Rooms: rooms})
+}
+
+func (m *Module) handleJoinRoom(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req JoinRoomServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(JoinRoomServiceResponse{Error: "invalid request"})
+	}
+
+	user, err := m.JoinRoom(req.RoomID, req.UserID, req.Username)
+	if err != nil {
+		return json.Marshal(JoinRoomServiceResponse{Error: err.Error()})
+	}
+	return json.Marshal(JoinRoomServiceResponse{User: user})
+}
+
+func (m *Module) handleLeaveRoom(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req LeaveRoomServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(LeaveRoomServiceResponse{Error: "invalid request"})
+	}
+
+	m.LeaveRoom(req.UserID)
+	return json.Marshal(LeaveRoomServiceResponse{Success: true})
+}
+
+func (m *Module) handleSendMessage(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req SendMessageServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(SendMessageServiceResponse{Error: "invalid request"})
+	}
+
+	if err := m.SendMessage(req.UserID, req.Content); err != nil {
+		return json.Marshal(SendMessageServiceResponse{Error: err.Error()})
+	}
+	return json.Marshal(SendMessageServiceResponse{Success: true})
+}
+
+func (m *Module) handleGetUser(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req GetUserServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(GetUserServiceResponse{Error: "invalid request"})
+	}
+
+	user, exists := m.store.GetUser(req.UserID)
+	return json.Marshal(GetUserServiceResponse{User: user, Exists: exists})
+}
+
+func (m *Module) handleGetHistory(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req GetHistoryServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(GetHistoryServiceResponse{Error: "invalid request"})
+	}
+
+	messages := m.GetHistory(req.RoomID, req.Limit)
+	return json.Marshal(GetHistoryServiceResponse{Messages: messages})
+}
+
+func (m *Module) handleGetRoomUsers(_ context.Context, msg *mono.Msg) ([]byte, error) {
+	var req GetRoomUsersServiceRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return json.Marshal(GetRoomUsersServiceResponse{Error: "invalid request"})
+	}
+
+	users := m.GetRoomUsers(req.RoomID)
+	return json.Marshal(GetRoomUsersServiceResponse{Users: users})
 }

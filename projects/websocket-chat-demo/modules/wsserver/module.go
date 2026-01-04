@@ -2,10 +2,12 @@ package wsserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/go-monolith/mono"
 	"github.com/go-monolith/mono/pkg/types"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
@@ -16,21 +18,40 @@ import (
 	"github.com/example/websocket-chat-demo/modules/chat"
 )
 
+// Compile-time interface checks
+var (
+	_ mono.Module              = (*Module)(nil)
+	_ mono.DependentModule     = (*Module)(nil)
+	_ mono.EventConsumerModule = (*Module)(nil)
+)
+
 // Module implements the WebSocket server module using Fiber framework.
 type Module struct {
-	app        *fiber.App
-	handlers   *Handlers
-	addr       string
-	chatModule *chat.Module
-	logger     types.Logger
+	app          *fiber.App
+	handlers     *Handlers
+	addr         string
+	chatAdapter  *chat.ServiceAdapter
+	logger       types.Logger
 }
 
 // NewModule creates a new WebSocket server module.
-func NewModule(addr string, chatModule *chat.Module, moduleLogger types.Logger) *Module {
+func NewModule(addr string, moduleLogger types.Logger) *Module {
 	return &Module{
-		addr:       addr,
-		chatModule: chatModule,
-		logger:     moduleLogger,
+		addr:   addr,
+		logger: moduleLogger,
+	}
+}
+
+// Dependencies declares the modules this module depends on.
+func (m *Module) Dependencies() []string {
+	return []string{"chat"}
+}
+
+// SetDependencyServiceContainer receives the service container from a dependency.
+func (m *Module) SetDependencyServiceContainer(dep string, container mono.ServiceContainer) {
+	if dep == "chat" {
+		m.chatAdapter = chat.NewServiceAdapter(container)
+		m.logger.Info("Received chat service container")
 	}
 }
 
@@ -39,8 +60,87 @@ func (m *Module) Name() string {
 	return "ws-server"
 }
 
+// RegisterEventConsumers registers event handlers for chat broadcasts.
+func (m *Module) RegisterEventConsumers(registry mono.EventRegistry) error {
+	// Register consumer for UserJoined events
+	userJoinedDef, ok := registry.GetEventByName("UserJoined", "v1", "chat")
+	if !ok {
+		return fmt.Errorf("event UserJoined.v1 not found")
+	}
+	if err := registry.RegisterEventConsumer(userJoinedDef, m.handleUserJoinedEvent, m); err != nil {
+		return fmt.Errorf("failed to register UserJoined consumer: %w", err)
+	}
+
+	// Register consumer for UserLeft events
+	userLeftDef, ok := registry.GetEventByName("UserLeft", "v1", "chat")
+	if !ok {
+		return fmt.Errorf("event UserLeft.v1 not found")
+	}
+	if err := registry.RegisterEventConsumer(userLeftDef, m.handleUserLeftEvent, m); err != nil {
+		return fmt.Errorf("failed to register UserLeft consumer: %w", err)
+	}
+
+	// Register consumer for ChatMessage events
+	chatMsgDef, ok := registry.GetEventByName("ChatMessage", "v1", "chat")
+	if !ok {
+		return fmt.Errorf("event ChatMessage.v1 not found")
+	}
+	if err := registry.RegisterEventConsumer(chatMsgDef, m.handleChatMessageEvent, m); err != nil {
+		return fmt.Errorf("failed to register ChatMessage consumer: %w", err)
+	}
+
+	m.logger.Info("Registered WebSocket event consumers")
+	return nil
+}
+
+// handleUserJoinedEvent broadcasts user join to WebSocket clients.
+func (m *Module) handleUserJoinedEvent(_ context.Context, msg *mono.Msg) error {
+	var event chat.ChatEvent
+	if err := json.Unmarshal(msg.Data, &event); err != nil {
+		m.logger.Error("Failed to unmarshal UserJoined event", "error", err)
+		return nil
+	}
+
+	if m.handlers != nil {
+		m.handlers.BroadcastToRoom(event.RoomID, "user_joined", event.Message)
+	}
+	return nil
+}
+
+// handleUserLeftEvent broadcasts user leave to WebSocket clients.
+func (m *Module) handleUserLeftEvent(_ context.Context, msg *mono.Msg) error {
+	var event chat.ChatEvent
+	if err := json.Unmarshal(msg.Data, &event); err != nil {
+		m.logger.Error("Failed to unmarshal UserLeft event", "error", err)
+		return nil
+	}
+
+	if m.handlers != nil {
+		m.handlers.BroadcastToRoom(event.RoomID, "user_left", event.Message)
+	}
+	return nil
+}
+
+// handleChatMessageEvent broadcasts chat message to WebSocket clients.
+func (m *Module) handleChatMessageEvent(_ context.Context, msg *mono.Msg) error {
+	var event chat.ChatEvent
+	if err := json.Unmarshal(msg.Data, &event); err != nil {
+		m.logger.Error("Failed to unmarshal ChatMessage event", "error", err)
+		return nil
+	}
+
+	if m.handlers != nil {
+		m.handlers.BroadcastToRoom(event.RoomID, "chat_message", event.Message)
+	}
+	return nil
+}
+
 // Start initializes and starts the WebSocket server.
 func (m *Module) Start(ctx context.Context) error {
+	if m.chatAdapter == nil {
+		return fmt.Errorf("chat adapter not set - dependency injection failed")
+	}
+
 	// Create Fiber app with custom config
 	m.app = fiber.New(fiber.Config{
 		AppName:               "WebSocket Chat Demo",
@@ -65,8 +165,8 @@ func (m *Module) Start(ctx context.Context) error {
 		AllowHeaders: "Content-Type,Authorization",
 	}))
 
-	// Create handlers
-	m.handlers = NewHandlers(m.chatModule)
+	// Create handlers with chat adapter
+	m.handlers = NewHandlers(m.chatAdapter)
 
 	// Register routes
 	m.registerRoutes()

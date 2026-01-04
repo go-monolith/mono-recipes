@@ -206,6 +206,11 @@ func (s *Service) GetStats(ctx context.Context, shortCode string) (*StatsRespons
 		return nil, fmt.Errorf("failed to get URL: %w", err)
 	}
 
+	// Check for empty data (can happen with deleted keys in some KV implementations)
+	if len(data) == 0 {
+		return nil, ErrURLNotFound
+	}
+
 	var entry URLEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal entry: %w", err)

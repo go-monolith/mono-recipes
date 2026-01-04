@@ -4,12 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/go-monolith/mono"
 	"github.com/go-monolith/mono/pkg/types"
-
-	"github.com/example/url-shortener-demo/modules/shortener"
 )
 
 // Module implements the analytics consumer module.
@@ -21,8 +18,9 @@ type Module struct {
 
 // Compile-time interface checks
 var (
-	_ mono.Module              = (*Module)(nil)
-	_ mono.EventConsumerModule = (*Module)(nil)
+	_ mono.Module                = (*Module)(nil)
+	_ mono.EventConsumerModule   = (*Module)(nil)
+	_ mono.ServiceProviderModule = (*Module)(nil)
 )
 
 // NewModule creates a new analytics module.
@@ -64,7 +62,7 @@ func (m *Module) RegisterEventConsumers(registry mono.EventRegistry) error {
 
 // handleURLCreated processes URLCreated events.
 func (m *Module) handleURLCreated(_ context.Context, msg *mono.Msg) error {
-	var event shortener.URLCreatedEvent
+	var event URLCreatedEvent
 	if err := json.Unmarshal(msg.Data, &event); err != nil {
 		m.logger.Error("Failed to unmarshal URLCreated event", "error", err)
 		return nil // Don't retry on unmarshal errors
@@ -80,7 +78,7 @@ func (m *Module) handleURLCreated(_ context.Context, msg *mono.Msg) error {
 
 // handleURLAccessed processes URLAccessed events.
 func (m *Module) handleURLAccessed(_ context.Context, msg *mono.Msg) error {
-	var event shortener.URLAccessedEvent
+	var event URLAccessedEvent
 	if err := json.Unmarshal(msg.Data, &event); err != nil {
 		m.logger.Error("Failed to unmarshal URLAccessed event", "error", err)
 		return nil // Don't retry on unmarshal errors
@@ -96,7 +94,7 @@ func (m *Module) handleURLAccessed(_ context.Context, msg *mono.Msg) error {
 
 	m.logger.Debug("Recorded URL access",
 		"shortCode", event.ShortCode,
-		"accessedAt", event.AccessedAt.Format(time.RFC3339))
+		"accessedAt", event.AccessedAt)
 
 	return nil
 }
@@ -116,4 +114,50 @@ func (m *Module) Stop(ctx context.Context) error {
 // Store returns the analytics store.
 func (m *Module) Store() *AnalyticsStore {
 	return m.store
+}
+
+// RegisterServices registers this module's services in the service container.
+func (m *Module) RegisterServices(container mono.ServiceContainer) error {
+	// Register get-analytics-summary service
+	if err := container.RegisterRequestReplyService("get-analytics-summary", m.handleGetSummary); err != nil {
+		return fmt.Errorf("failed to register get-analytics-summary service: %w", err)
+	}
+
+	// Register get-analytics-logs service
+	if err := container.RegisterRequestReplyService("get-analytics-logs", m.handleGetLogs); err != nil {
+		return fmt.Errorf("failed to register get-analytics-logs service: %w", err)
+	}
+
+	m.logger.Info("Registered analytics services",
+		"services", []string{"get-analytics-summary", "get-analytics-logs"})
+	return nil
+}
+
+// Service handler functions
+
+// handleGetSummary handles get-analytics-summary service requests.
+func (m *Module) handleGetSummary(ctx context.Context, msg *mono.Msg) ([]byte, error) {
+	summary := m.store.GetSummary()
+	return json.Marshal(summary)
+}
+
+// handleGetLogs handles get-analytics-logs service requests.
+func (m *Module) handleGetLogs(ctx context.Context, msg *mono.Msg) ([]byte, error) {
+	var req struct {
+		Limit int `json:"limit"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	// Default limit
+	if req.Limit <= 0 {
+		req.Limit = 100
+	}
+	if req.Limit > 1000 {
+		req.Limit = 1000
+	}
+
+	logs := m.store.GetRecentAccessLogs(req.Limit)
+	return json.Marshal(logs)
 }

@@ -67,17 +67,19 @@ func main() {
 	logger := app.Logger()
 
 	// Create modules
-	// Note: Module creation order doesn't matter, but registration order
-	// determines the startup/shutdown sequence
+	// Note: Module creation order doesn't matter.
+	// The framework automatically resolves dependencies and determines startup/shutdown order.
 	shortenerModule := shortener.NewModule(baseURL, logger)
 	analyticsModule := analytics.NewModule(logger)
-	httpServerModule := httpserver.NewModule(httpAddr, shortenerModule, analyticsModule, logger)
+	httpServerModule := httpserver.NewModule(httpAddr, logger)
 
 	// Register modules
 	// The framework handles:
 	// 1. Plugin injection (kv plugin -> shortener via SetPlugin)
 	// 2. Event bus wiring (shortener emits events, analytics consumes)
-	// 3. Lifecycle management (Start/Stop in correct order)
+	// 3. Dependency resolution (httpserver depends on shortener & analytics)
+	// 4. Service container injection (via SetDependencyServiceContainer)
+	// 5. Lifecycle management (Start/Stop in correct dependency order)
 	app.Register(shortenerModule)
 	app.Register(analyticsModule)
 	app.Register(httpServerModule)

@@ -159,3 +159,24 @@ func (s *AnalyticsStore) GetSummary() map[string]any {
 		"access_logs":    len(s.accessLogs),
 	}
 }
+
+// Event types for unmarshaling (compatible with shortener's event structure)
+
+// URLCreatedEvent represents a URL creation event.
+// This is a local type that matches the JSON structure of shortener.URLCreatedEvent.
+type URLCreatedEvent struct {
+	ShortCode   string    `json:"short_code"`
+	OriginalURL string    `json:"original_url"`
+	CreatedAt   time.Time `json:"created_at"`
+	TTLSeconds  int64     `json:"ttl_seconds,omitempty"`
+}
+
+// URLAccessedEvent represents a URL access event.
+// This is a local type that matches the JSON structure of shortener.URLAccessedEvent.
+type URLAccessedEvent struct {
+	ShortCode   string    `json:"short_code"`
+	OriginalURL string    `json:"original_url"`
+	AccessedAt  time.Time `json:"accessed_at"`
+	UserAgent   string    `json:"user_agent,omitempty"`
+	IPAddress   string    `json:"ip_address,omitempty"`
+}

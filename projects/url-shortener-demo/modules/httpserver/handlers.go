@@ -3,7 +3,6 @@ package httpserver
 import (
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -13,17 +12,17 @@ import (
 
 // Handlers contains HTTP request handlers for URL shortener operations.
 type Handlers struct {
-	shortenerModule *shortener.Module
-	analyticsModule *analytics.Module
-	logger          *slog.Logger
+	shortener shortener.ShortenerAdapterPort
+	analytics analytics.AnalyticsAdapterPort
+	logger    *slog.Logger
 }
 
 // NewHandlers creates a new handlers instance.
-func NewHandlers(shortenerModule *shortener.Module, analyticsModule *analytics.Module) *Handlers {
+func NewHandlers(shortener shortener.ShortenerAdapterPort, analytics analytics.AnalyticsAdapterPort) *Handlers {
 	return &Handlers{
-		shortenerModule: shortenerModule,
-		analyticsModule: analyticsModule,
-		logger:          slog.Default(),
+		shortener: shortener,
+		analytics: analytics,
+		logger:    slog.Default(),
 	}
 }
 
@@ -43,7 +42,7 @@ func (h *Handlers) ShortenURL(c *fiber.Ctx) error {
 		})
 	}
 
-	result, err := h.shortenerModule.Service().ShortenURL(c.Context(), req)
+	result, err := h.shortener.ShortenURL(c.Context(), req)
 	if err != nil {
 		if errors.Is(err, shortener.ErrInvalidURL) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -57,18 +56,7 @@ func (h *Handlers) ShortenURL(c *fiber.Ctx) error {
 		})
 	}
 
-	// Publish URLCreated event (best-effort, log errors)
-	if err := h.shortenerModule.PublishURLCreated(shortener.URLCreatedEvent{
-		ShortCode:   result.ShortCode,
-		OriginalURL: result.OriginalURL,
-		CreatedAt:   result.CreatedAt,
-		TTLSeconds:  req.TTLSeconds,
-	}); err != nil {
-		h.logger.Warn("Failed to publish URLCreated event",
-			"shortCode", result.ShortCode,
-			"error", err)
-	}
-
+	// Event publishing is now handled internally by the shortener service
 	return c.Status(fiber.StatusCreated).JSON(result)
 }
 
@@ -81,7 +69,7 @@ func (h *Handlers) Redirect(c *fiber.Ctx) error {
 		})
 	}
 
-	originalURL, err := h.shortenerModule.Service().ResolveAndTrack(c.Context(), shortCode)
+	originalURL, err := h.shortener.ResolveURL(c.Context(), shortCode, c.Get("User-Agent"), c.IP())
 	if err != nil {
 		if errors.Is(err, shortener.ErrURLNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -104,19 +92,7 @@ func (h *Handlers) Redirect(c *fiber.Ctx) error {
 		})
 	}
 
-	// Publish URLAccessed event (best-effort, log errors)
-	if err := h.shortenerModule.PublishURLAccessed(shortener.URLAccessedEvent{
-		ShortCode:   shortCode,
-		OriginalURL: originalURL,
-		AccessedAt:  time.Now(),
-		UserAgent:   c.Get("User-Agent"),
-		IPAddress:   c.IP(),
-	}); err != nil {
-		h.logger.Debug("Failed to publish URLAccessed event",
-			"shortCode", shortCode,
-			"error", err)
-	}
-
+	// Event publishing is now handled internally by the shortener service
 	return c.Redirect(originalURL, fiber.StatusTemporaryRedirect)
 }
 
@@ -129,7 +105,7 @@ func (h *Handlers) GetStats(c *fiber.Ctx) error {
 		})
 	}
 
-	stats, err := h.shortenerModule.Service().GetStats(c.Context(), shortCode)
+	stats, err := h.shortener.GetStats(c.Context(), shortCode)
 	if err != nil {
 		if errors.Is(err, shortener.ErrURLNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -152,7 +128,7 @@ func (h *Handlers) GetStats(c *fiber.Ctx) error {
 
 // ListURLs handles URL listing requests (GET /api/v1/urls).
 func (h *Handlers) ListURLs(c *fiber.Ctx) error {
-	urls, err := h.shortenerModule.Service().ListURLs(c.Context())
+	urls, err := h.shortener.ListURLs(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Failed to list URLs",
@@ -175,7 +151,7 @@ func (h *Handlers) DeleteURL(c *fiber.Ctx) error {
 		})
 	}
 
-	err := h.shortenerModule.Service().DeleteURL(c.Context(), shortCode)
+	err := h.shortener.DeleteURL(c.Context(), shortCode)
 	if err != nil {
 		if errors.Is(err, shortener.ErrURLNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -201,7 +177,13 @@ func (h *Handlers) DeleteURL(c *fiber.Ctx) error {
 
 // GetAnalytics handles analytics summary requests (GET /api/v1/analytics).
 func (h *Handlers) GetAnalytics(c *fiber.Ctx) error {
-	summary := h.analyticsModule.Store().GetSummary()
+	summary, err := h.analytics.GetSummary(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Failed to get analytics summary",
+			"details": err.Error(),
+		})
+	}
 	return c.JSON(summary)
 }
 
@@ -212,7 +194,13 @@ func (h *Handlers) GetAnalyticsLogs(c *fiber.Ctx) error {
 		limit = 1000
 	}
 
-	logs := h.analyticsModule.Store().GetRecentAccessLogs(limit)
+	logs, err := h.analytics.GetRecentLogs(c.Context(), limit)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Failed to get analytics logs",
+			"details": err.Error(),
+		})
+	}
 	return c.JSON(fiber.Map{
 		"logs":  logs,
 		"total": len(logs),

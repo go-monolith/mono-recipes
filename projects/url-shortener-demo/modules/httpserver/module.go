@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-monolith/mono"
 	"github.com/go-monolith/mono/pkg/types"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -18,32 +19,42 @@ import (
 
 // Module implements the HTTP server module using Fiber framework.
 type Module struct {
-	app             *fiber.App
-	handlers        *Handlers
-	addr            string
-	shortenerModule *shortener.Module
-	analyticsModule *analytics.Module
-	logger          types.Logger
+	app               *fiber.App
+	handlers          *Handlers
+	addr              string
+	shortenerAdapter  shortener.ShortenerAdapterPort
+	analyticsAdapter  analytics.AnalyticsAdapterPort
+	logger            types.Logger
 }
 
 // NewModule creates a new HTTP server module.
-func NewModule(
-	addr string,
-	shortenerModule *shortener.Module,
-	analyticsModule *analytics.Module,
-	moduleLogger types.Logger,
-) *Module {
+func NewModule(addr string, moduleLogger types.Logger) *Module {
 	return &Module{
-		addr:            addr,
-		shortenerModule: shortenerModule,
-		analyticsModule: analyticsModule,
-		logger:          moduleLogger,
+		addr:   addr,
+		logger: moduleLogger,
 	}
 }
 
 // Name returns the module name.
 func (m *Module) Name() string {
 	return "http-server"
+}
+
+// Dependencies declares which modules this module depends on.
+func (m *Module) Dependencies() []string {
+	return []string{"shortener", "analytics"}
+}
+
+// SetDependencyServiceContainer receives service containers from dependency modules.
+func (m *Module) SetDependencyServiceContainer(module string, container mono.ServiceContainer) {
+	switch module {
+	case "shortener":
+		m.shortenerAdapter = shortener.NewShortenerAdapter(container)
+		m.logger.Info("Received shortener service container")
+	case "analytics":
+		m.analyticsAdapter = analytics.NewAnalyticsAdapter(container)
+		m.logger.Info("Received analytics service container")
+	}
 }
 
 // Start initializes and starts the HTTP server.
@@ -72,7 +83,7 @@ func (m *Module) Start(ctx context.Context) error {
 	}))
 
 	// Create handlers
-	m.handlers = NewHandlers(m.shortenerModule, m.analyticsModule)
+	m.handlers = NewHandlers(m.shortenerAdapter, m.analyticsAdapter)
 
 	// Register routes
 	m.registerRoutes()

@@ -34,6 +34,10 @@ Constraints: [constraints.md](./constraints.md)
    - Tasks: 6-10
    - Notes: Rate limiting, Redis caching, background jobs, validation, health checks
 
+5. Milestone 5 - Advanced Patterns
+   - Tasks: 11-15
+   - Notes: CRUD generation, resilience patterns, pagination, audit trails
+
 ## Task List
 
 - [x] 1. Create GORM + SQLite recipe demonstrating ORM-based database integration
@@ -86,7 +90,7 @@ Constraints: [constraints.md](./constraints.md)
   - Success Criteria: Full auth flow works via `demo.sh`, invalid tokens are rejected
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-- [ ] 3. Create File Upload recipe with Gin + builtin `fs-jetstream` plugin
+- [x] 3. Create File Upload recipe with Gin + builtin `fs-jetstream` plugin
   - Create new recipe directory: `projects/file-upload-demo/`
   - Implement HTTP server using Gin framework (alternative to Fiber)
   - Use mono framework's builtin `fs-jetstream` plugin via `UsePluginModule` interface
@@ -109,7 +113,7 @@ Constraints: [constraints.md](./constraints.md)
   - Success Criteria: Files can be uploaded/downloaded via `demo.sh`, stored in embedded JetStream
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-- [ ] 4. Create URL Shortener recipe with Fiber + builtin `kv-jetstream` plugin
+- [x] 4. Create URL Shortener recipe with Fiber + builtin `kv-jetstream` plugin
   - Create new recipe directory: `projects/url-shortener-demo/`
   - Implement HTTP server using Fiber framework
   - Use mono framework's builtin `kv-jetstream` plugin via `UsePluginModule` interface
@@ -133,7 +137,7 @@ Constraints: [constraints.md](./constraints.md)
   - Success Criteria: URLs shortened and redirected via `demo.sh`, events published to analytics
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-- [ ] 5. Create WebSocket Chat recipe with Fiber + EventBus pubsub
+- [x] 5. Create WebSocket Chat recipe with Fiber + EventBus pubsub
   - Create new recipe directory: `projects/websocket-chat-demo/`
   - Implement HTTP server using Fiber framework with WebSocket support
   - Create WebSocket endpoint (`/ws`) for real-time bidirectional communication
@@ -163,7 +167,7 @@ Constraints: [constraints.md](./constraints.md)
 
 <!-- New tasks added on 2026-01-03 - Milestone 4: API Patterns and Caching -->
 
-- [ ] 6. Create Rate Limiting Middleware recipe with mono framework + Redis
+- [x] 6. Create Rate Limiting Middleware recipe with mono framework + Redis
   - Create new recipe directory: `projects/rate-limiting-middleware/`
   - Implement `ServiceProviderModule` exposing request-reply services for API operations:
     - `api.getData` - Get data with rate limiting applied
@@ -320,4 +324,124 @@ Constraints: [constraints.md](./constraints.md)
     - Sample Grafana dashboard import
   - Add unit tests for health check handlers
   - Success Criteria: Health probes work correctly, Prometheus can scrape metrics, Grafana displays dashboard
+  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
+
+<!-- New tasks added on 2026-01-04 - Milestone 5: Advanced Patterns -->
+
+- [ ] 11. Create CRUD API Generator recipe with Fiber + GORM + Code Generation
+  - Create new recipe directory: `projects/crud-generator-demo/`
+  - Implement code generation pattern for CRUD endpoints from model definitions
+  - Create `Product`, `Category`, `Order` entities with GORM
+  - Generate REST endpoints automatically using reflection:
+    - `GET /api/v1/{entity}` - List with pagination
+    - `GET /api/v1/{entity}/:id` - Get by ID
+    - `POST /api/v1/{entity}` - Create
+    - `PUT /api/v1/{entity}/:id` - Update
+    - `DELETE /api/v1/{entity}/:id` - Delete
+  - Implement generic repository pattern with type constraints
+  - Add filtering, sorting, and pagination support
+  - Include comprehensive `README.md` explaining:
+    - Why use code generation for CRUD (DRY, consistency)
+    - Go generics for type-safe repositories
+    - Trade-offs vs hand-written endpoints
+  - Create executable `demo.sh` demonstrating CRUD operations on multiple entities
+  - Add unit tests for generic repository
+  - Success Criteria: Multiple entities share same CRUD logic, `demo.sh` works with all entities
+  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
+
+- [ ] 12. Create Graceful Degradation recipe with Circuit Breaker pattern
+  - Create new recipe directory: `projects/circuit-breaker-demo/`
+  - Implement circuit breaker pattern using `sony/gobreaker` library
+  - Create API module that calls external service (simulated)
+  - Implement three circuit states: Closed, Open, Half-Open
+  - Add fallback responses when circuit is open
+  - Create REST endpoints demonstrating circuit behavior:
+    - `GET /api/v1/external-data` - Calls external service with circuit breaker
+    - `GET /api/v1/circuit-status` - Shows current circuit state
+  - Implement `ServiceProviderModule` wrapping external calls
+  - Add configurable thresholds (failure count, timeout, recovery time)
+  - Include comprehensive `README.md` explaining:
+    - Why use circuit breaker (resilience, cascading failures)
+    - Circuit breaker states and transitions
+    - When to use vs retry patterns
+  - Create executable `demo.sh` demonstrating:
+    - Normal operation (circuit closed)
+    - Failure threshold reached (circuit opens)
+    - Recovery after timeout (half-open → closed)
+  - Add unit tests for circuit breaker wrapper
+  - Success Criteria: Circuit opens on failures, fallback responses work, recovery demonstrated
+  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
+
+- [ ] 13. Create Retry with Exponential Backoff recipe
+  - Create new recipe directory: `projects/retry-backoff-demo/`
+  - Implement retry pattern with exponential backoff and jitter
+  - Create configurable retry policy:
+    - Max retries, initial delay, max delay, backoff multiplier
+    - Jitter to prevent thundering herd
+  - Implement `ServiceProviderModule` with retry-wrapped service calls
+  - Add context cancellation support for timeouts
+  - Create REST endpoints demonstrating retry behavior:
+    - `POST /api/v1/unreliable-operation` - Operation that may fail
+    - `GET /api/v1/retry-stats` - Shows retry statistics
+  - Log retry attempts with timing information
+  - Include comprehensive `README.md` explaining:
+    - Why use exponential backoff (rate limiting, server recovery)
+    - Jitter importance for distributed systems
+    - When to retry vs fail fast
+  - Create executable `demo.sh` demonstrating:
+    - Successful retry after transient failures
+    - Max retries exceeded scenario
+    - Backoff timing visualization
+  - Add unit tests for retry logic
+  - Success Criteria: Retries work with backoff, jitter prevents sync, timeouts respected
+  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
+
+- [ ] 14. Create Pagination & Cursor-based API recipe with Fiber + GORM
+  - Create new recipe directory: `projects/pagination-demo/`
+  - Implement both offset-based and cursor-based pagination
+  - Create `Article` entity with GORM (1000+ seeded records)
+  - Implement pagination endpoints:
+    - `GET /api/v1/articles?page=1&limit=20` - Offset pagination
+    - `GET /api/v1/articles?cursor=abc&limit=20` - Cursor pagination
+  - Return pagination metadata (total, hasNext, hasPrev, cursors)
+  - Add sorting support with multiple fields
+  - Implement efficient database queries (avoid N+1, use indexes)
+  - Include comprehensive `README.md` explaining:
+    - Offset vs cursor pagination trade-offs
+    - When to use each approach
+    - Database indexing for performance
+    - API design best practices for pagination
+  - Create executable `demo.sh` demonstrating:
+    - Offset pagination through pages
+    - Cursor pagination forward/backward
+    - Performance comparison with large datasets
+  - Add unit tests for pagination logic
+  - Success Criteria: Both pagination types work, large dataset handles efficiently
+  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
+
+- [ ] 15. Create Soft Delete & Audit Trail recipe with GORM hooks
+  - Create new recipe directory: `projects/soft-delete-audit-demo/`
+  - Implement soft delete pattern using GORM's `DeletedAt` field
+  - Create audit trail logging for all entity changes
+  - Implement `Document` entity with full audit:
+    - `created_at`, `created_by`
+    - `updated_at`, `updated_by`
+    - `deleted_at`, `deleted_by`
+  - Create `AuditLog` entity storing change history:
+    - Entity type, entity ID, action, old/new values, user, timestamp
+  - Use GORM hooks (`BeforeCreate`, `BeforeUpdate`, `BeforeDelete`)
+  - Implement REST endpoints:
+    - Standard CRUD for documents
+    - `GET /api/v1/documents/:id/history` - View audit trail
+    - `POST /api/v1/documents/:id/restore` - Restore soft-deleted
+  - Include comprehensive `README.md` explaining:
+    - Why use soft delete (data recovery, compliance)
+    - Audit trail for compliance and debugging
+    - GORM hooks for cross-cutting concerns
+  - Create executable `demo.sh` demonstrating:
+    - CRUD operations with audit logging
+    - Soft delete and restore
+    - Viewing change history
+  - Add unit tests for audit hooks
+  - Success Criteria: Soft delete works, audit trail captures all changes, restore works
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_

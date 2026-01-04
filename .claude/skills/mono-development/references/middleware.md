@@ -355,7 +355,7 @@ func (m *MyMiddleware) Stop(ctx context.Context) error {
 
 ```go
 // Compile-time check
-var _ types.MiddlewareModule = (*MyMiddleware)(nil)
+var _ mono.MiddlewareModule = (*MyMiddleware)(nil)
 
 func (m *MyMiddleware) OnModuleLifecycle(
     ctx context.Context,
@@ -529,7 +529,7 @@ type MetricsMiddleware struct {
     totalLatency atomic.Int64
 }
 
-var _ types.MiddlewareModule = (*MetricsMiddleware)(nil)
+var _ mono.MiddlewareModule = (*MetricsMiddleware)(nil)
 
 func New() *MetricsMiddleware {
     return &MetricsMiddleware{name: "metrics"}

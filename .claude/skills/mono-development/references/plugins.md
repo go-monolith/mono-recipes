@@ -511,7 +511,7 @@ type Config struct {
 }
 
 // Compile-time check
-var _ types.PluginModule = (*PluginModule)(nil)
+var _ mono.PluginModule = (*PluginModule)(nil)
 
 func New(config Config) (*PluginModule, error) {
     ttl := config.DefaultTTL

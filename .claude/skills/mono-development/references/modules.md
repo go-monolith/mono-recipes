@@ -325,6 +325,50 @@ func (m *MyModule) SetPlugin(alias string, plugin mono.PluginModule) {
 
 **When to use:** When using functionality from a registered plugin.
 
+## Compile-Time Interface Checks
+
+Always use compile-time interface checks to catch implementation errors early:
+
+```go
+// Compile-time interface checks.
+var _ mono.Module = (*MyModule)(nil)
+// or 
+var _ mono.EventBusAwareModule = (*MyModule)(nil)
+// or
+var _ mono.ServiceProviderModule = (*MyModule)(nil)
+```
+
+**Why use this pattern:**
+
+1. **Early error detection**: Catches missing methods at compile time, not runtime
+2. **Self-documenting**: Clearly shows which interfaces the type implements
+3. **Refactoring safety**: If interface changes, compiler immediately flags issues
+4. **No runtime cost**: The `var _ =` pattern is optimized away by the compiler
+
+**Standard format:**
+
+```go
+// For plugins
+var _ mono.PluginModule = (*MyPlugin)(nil)
+
+// For modules implementing multiple interfaces
+// Note that: all module interfaces already inherit from base Module interface
+// and some module interfaces inherit from others. For example, EventEmitterModule inherit from EventBusAwareModule.
+// When specifying multiple interfaces, only include each unique interface once. No need to repeat base interfaces.
+// Or interfaces that are already inherited by other interfaces.
+var (
+    _ mono.ServiceProviderModule = (*MyModule)(nil)
+    _ mono.DependentModule       = (*MyModule)(nil)
+    _ mono.UsePluginModule       = (*MyModule)(nil)
+    _ mono.EventEmitterModule    = (*MyModule)(nil)
+)
+
+// For middleware
+var _ mono.MiddlewareModule = (*MyMiddleware)(nil)
+```
+
+**Placement**: Put compile-time checks immediately after the struct definition or constructor function, before method implementations.
+
 ## Complete Module Example
 
 Module implementing multiple interfaces:

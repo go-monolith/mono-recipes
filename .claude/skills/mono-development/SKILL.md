@@ -238,11 +238,12 @@ my-app/
 - Use events for broadcast/loose coupling (emitter doesn't know consumers)
 - Declare dependencies explicitly via `DependentModule`
 - Handle errors explicitly, wrap with context using `%w`
-- Use structured logging with `log/slog`
+- Use structured logging with `log/slog` or pass in `app.Logger()` (builtin framework logger) in module constructor
 
 ### Don't
 
-- Call modules directly - use services or events
+- Call module.Start() or module.Stop() directly (this is handled by framework)
+- Define & call modules's function directly - use services or events
 - Create circular dependencies - refactor or use events
 - Store global state - use framework's dependency injection
 - Panic in modules - return errors instead

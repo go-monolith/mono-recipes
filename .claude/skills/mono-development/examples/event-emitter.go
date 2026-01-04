@@ -55,8 +55,12 @@ type TrackingModule struct {
 	orderCount atomic.Int64
 }
 
-// Compile-time interface checks
-var _ mono.EventEmitterModule = (*TrackingModule)(nil)
+// Compile-time interface checks.
+var (
+	_ mono.Module             = (*TrackingModule)(nil)
+	_ mono.EventBusAwareModule = (*TrackingModule)(nil)
+	_ mono.EventEmitterModule = (*TrackingModule)(nil)
+)
 
 func NewTrackingModule() *TrackingModule {
 	return &TrackingModule{}
@@ -122,8 +126,11 @@ type NotificationModule struct {
 	notifications []OrderCreatedEvent
 }
 
-// Compile-time interface checks
-var _ mono.EventConsumerModule = (*NotificationModule)(nil)
+// Compile-time interface checks.
+var (
+	_ mono.Module              = (*NotificationModule)(nil)
+	_ mono.EventConsumerModule = (*NotificationModule)(nil)
+)
 
 func NewNotificationModule() *NotificationModule {
 	return &NotificationModule{

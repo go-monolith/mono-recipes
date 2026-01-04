@@ -559,6 +559,7 @@ func (m *NotificationModule) handleOrderCreated(
 
 ### Do
 
+- Use compile-time interface checks (`var _ mono.EventEmitterModule = (*MyModule)(nil)`)
 - Use `EventStreamConsumer` for critical events
 - Keep handlers idempotent (events may be redelivered)
 - Use queue groups for scaling consumers

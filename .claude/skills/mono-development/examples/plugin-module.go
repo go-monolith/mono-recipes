@@ -49,7 +49,7 @@ type cacheEntry struct {
 }
 
 // Compile-time interface check
-var _ types.PluginModule = (*CachePlugin)(nil)
+var _ mono.PluginModule = (*CachePlugin)(nil)
 
 // New creates a new cache plugin instance
 func NewCachePlugin(config Config) (*CachePlugin, error) {
@@ -244,7 +244,7 @@ type UserModule struct {
 
 // Compile-time interface checks
 var (
-	_ mono.Module         = (*UserModule)(nil)
+	_ mono.Module          = (*UserModule)(nil)
 	_ mono.UsePluginModule = (*UserModule)(nil)
 )
 

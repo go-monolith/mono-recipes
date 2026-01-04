@@ -47,7 +47,7 @@ type ServiceMetrics struct {
 }
 
 // Compile-time interface check
-var _ types.MiddlewareModule = (*MetricsMiddleware)(nil)
+var _ mono.MiddlewareModule = (*MetricsMiddleware)(nil)
 
 // NewMetricsMiddleware creates a new metrics middleware.
 func NewMetricsMiddleware() *MetricsMiddleware {

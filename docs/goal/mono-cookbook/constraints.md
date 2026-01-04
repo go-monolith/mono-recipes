@@ -41,7 +41,7 @@ N/A - This is a documentation/reference project.
 - ✅ Code is properly documented with comments and README files
 
 ## Additional Constraints
-
+- Must always use skill `mono-development` to implement examples for this goal
 - Each recipe directory must have its own `README.md` explaining the pattern
 - All code examples must be runnable without modification
 - Each recipe must include a `demo.sh` bash script or `demo.py` python script to demonstrate the application

@@ -4,7 +4,7 @@ Mono Cookbook
 
 ## Vision
 
-Create a curated collection of reusable code recipes, patterns, and examples that serve as a comprehensive reference library for backend development, covering API recipes, event-driven architecture (EDA), and database integration patterns. All examples will be built using the `github.com/go-monolith/mono` framework to demonstrate best practices and common use cases.
+Create a curated collection of reusable code recipes, patterns, and examples that serve as a comprehensive reference library for backend development, covering API recipes, event-driven architecture (EDA), and database integration patterns. All examples will be built using the `github.com/go-monolith/mono` framework to demonstrate best practices and common use cases. Also contributing to `mono-development` skill to improve framework best practices and guidelines.
 
 ## Success Criteria
 

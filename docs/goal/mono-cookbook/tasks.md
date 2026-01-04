@@ -86,7 +86,7 @@ Constraints: [constraints.md](./constraints.md)
   - Success Criteria: Full auth flow works via `demo.sh`, invalid tokens are rejected
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-- [ ] 3. Create File Upload recipe with Gin + builtin `fs-jetstream` plugin
+- [+] 3. Create File Upload recipe with Gin + builtin `fs-jetstream` plugin
   - Create new recipe directory: `projects/file-upload-demo/`
   - Implement HTTP server using Gin framework (alternative to Fiber)
   - Use mono framework's builtin `fs-jetstream` plugin via `UsePluginModule` interface

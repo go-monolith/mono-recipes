@@ -4,7 +4,9 @@
 
 Here you can find the most **delicious** recipes to cook delicious meals using our Monolith Framework.
 
-*All examples presented here are built with `github.com/go-monolith/mono` framework*
+*All examples presented here are built with `github.com/go-monolith/mono` framework **v0.0.3***
+
+> **Note:** All recipes have been updated to use mono framework v0.0.3, which includes improved error handling in RequestReplyService and QueueGroupService patterns.
 
 ## 🌽 Table of contents
 

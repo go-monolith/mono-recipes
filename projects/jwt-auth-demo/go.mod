@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/gelmium/graceful-shutdown v0.0.11
-	github.com/go-monolith/mono v0.0.2
+	github.com/go-monolith/mono v0.0.3
 	github.com/gofiber/fiber/v2 v2.52.10
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0

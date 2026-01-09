@@ -77,61 +77,35 @@ func (m *ProductModule) Health(ctx context.Context) mono.HealthStatus {
 }
 
 // RegisterServices registers request-reply services in the service container.
-// This implements the ServiceProviderModule interface.
-// Note: The framework automatically prefixes service names with "services.<module>."
+// The framework automatically prefixes service names with "services.<module>."
 // so "create" becomes "services.product.create" in the NATS subject.
 func (m *ProductModule) RegisterServices(container mono.ServiceContainer) error {
-	// Register create service (full subject: services.product.create)
 	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"create",
-		json.Unmarshal,
-		json.Marshal,
-		m.createProduct,
+		container, "create", json.Unmarshal, json.Marshal, m.createProduct,
 	); err != nil {
 		return fmt.Errorf("failed to register create service: %w", err)
 	}
 
-	// Register get service (full subject: services.product.get)
 	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"get",
-		json.Unmarshal,
-		json.Marshal,
-		m.getProduct,
+		container, "get", json.Unmarshal, json.Marshal, m.getProduct,
 	); err != nil {
 		return fmt.Errorf("failed to register get service: %w", err)
 	}
 
-	// Register list service (full subject: services.product.list)
 	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"list",
-		json.Unmarshal,
-		json.Marshal,
-		m.listProducts,
+		container, "list", json.Unmarshal, json.Marshal, m.listProducts,
 	); err != nil {
 		return fmt.Errorf("failed to register list service: %w", err)
 	}
 
-	// Register update service (full subject: services.product.update)
 	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"update",
-		json.Unmarshal,
-		json.Marshal,
-		m.updateProduct,
+		container, "update", json.Unmarshal, json.Marshal, m.updateProduct,
 	); err != nil {
 		return fmt.Errorf("failed to register update service: %w", err)
 	}
 
-	// Register delete service (full subject: services.product.delete)
 	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"delete",
-		json.Unmarshal,
-		json.Marshal,
-		m.deleteProduct,
+		container, "delete", json.Unmarshal, json.Marshal, m.deleteProduct,
 	); err != nil {
 		return fmt.Errorf("failed to register delete service: %w", err)
 	}

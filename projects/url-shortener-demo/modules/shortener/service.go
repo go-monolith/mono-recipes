@@ -56,7 +56,10 @@ func validateURL(rawURL string) error {
 		return fmt.Errorf("%w: %s", ErrInvalidURL, err.Error())
 	}
 
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	switch parsed.Scheme {
+	case "http", "https":
+		// Valid schemes
+	default:
 		return fmt.Errorf("%w: scheme must be http or https", ErrInvalidURL)
 	}
 

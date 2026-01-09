@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-monolith/mono"
@@ -146,19 +146,23 @@ func (m *PluginModule) Health(ctx context.Context) mono.HealthStatus {
 // ============================================================
 
 // parseRedisAddr parses "host:port" into host and port.
+// Returns defaults (127.0.0.1:6379) for invalid or missing values.
 func parseRedisAddr(addr string) (string, int) {
-	// Default values
-	host := "127.0.0.1"
-	port := 6379
+	const defaultHost = "127.0.0.1"
+	const defaultPort = 6379
 
-	parts := strings.Split(addr, ":")
-	if len(parts) >= 1 && parts[0] != "" {
-		host = parts[0]
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return defaultHost, defaultPort
 	}
-	if len(parts) >= 2 {
-		if p, err := strconv.Atoi(parts[1]); err == nil {
-			port = p
-		}
+
+	if host == "" {
+		host = defaultHost
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		port = defaultPort
 	}
 
 	return host, port

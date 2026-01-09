@@ -81,50 +81,32 @@ func (m *Module) Stop(_ context.Context) error {
 
 // handleJobTypeEmail handles email jobs, ignoring other job types.
 func (m *Module) handleJobTypeEmail(ctx context.Context, msg *mono.Msg) error {
-	var j job.Job
-	if err := json.Unmarshal(msg.Data, &j); err != nil {
-		log.Printf("[email-worker] Error unmarshaling job: %v", err)
-		return nil
-	}
-
-	// Filter: only process email jobs
-	if j.Type != job.JobTypeEmail {
-		return nil // Ignore other job types
-	}
-
-	return m.processJob(ctx, &j, "email-worker")
+	return m.handleJobOfType(ctx, msg, job.JobTypeEmail, QueueGroupEmail)
 }
 
 // handleJobTypeImageProcessing handles image processing jobs, ignoring other job types.
 func (m *Module) handleJobTypeImageProcessing(ctx context.Context, msg *mono.Msg) error {
-	var j job.Job
-	if err := json.Unmarshal(msg.Data, &j); err != nil {
-		log.Printf("[image-processing-worker] Error unmarshaling job: %v", err)
-		return nil
-	}
-
-	// Filter: only process image processing jobs
-	if j.Type != job.JobTypeImageProcessing {
-		return nil // Ignore other job types
-	}
-
-	return m.processJob(ctx, &j, "image-processing-worker")
+	return m.handleJobOfType(ctx, msg, job.JobTypeImageProcessing, QueueGroupImageProcessing)
 }
 
 // handleJobTypeReportGeneration handles report generation jobs, ignoring other job types.
 func (m *Module) handleJobTypeReportGeneration(ctx context.Context, msg *mono.Msg) error {
+	return m.handleJobOfType(ctx, msg, job.JobTypeReportGeneration, QueueGroupReportGeneration)
+}
+
+// handleJobOfType processes jobs of the specified type, ignoring others.
+func (m *Module) handleJobOfType(ctx context.Context, msg *mono.Msg, jobType job.JobType, workerID string) error {
 	var j job.Job
 	if err := json.Unmarshal(msg.Data, &j); err != nil {
-		log.Printf("[report-generation-worker] Error unmarshaling job: %v", err)
+		log.Printf("[%s] Error unmarshaling job: %v", workerID, err)
 		return nil
 	}
 
-	// Filter: only process report generation jobs
-	if j.Type != job.JobTypeReportGeneration {
-		return nil // Ignore other job types
+	if j.Type != jobType {
+		return nil
 	}
 
-	return m.processJob(ctx, &j, "report-generation-worker")
+	return m.processJob(ctx, &j, workerID)
 }
 
 // processJob is the common job processing logic used by all type-specific handlers.

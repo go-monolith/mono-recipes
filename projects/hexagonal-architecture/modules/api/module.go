@@ -18,38 +18,28 @@ type APIModule struct {
 	taskAdapter task.TaskPort
 }
 
-// Compile-time interface checks.
 var _ mono.Module = (*APIModule)(nil)
 var _ mono.DependentModule = (*APIModule)(nil)
 var _ mono.HealthCheckableModule = (*APIModule)(nil)
 
-// NewModule creates a new APIModule.
 func NewModule() *APIModule {
 	return &APIModule{}
 }
 
-// Name returns the module name.
 func (m *APIModule) Name() string {
 	return "api"
 }
 
-// Dependencies returns the list of module dependencies.
-// The framework will call SetDependencyServiceContainer for each dependency.
 func (m *APIModule) Dependencies() []string {
 	return []string{"task"}
 }
 
-// SetDependencyServiceContainer receives service containers from dependencies.
-// This is called by the framework for each dependency declared in Dependencies().
 func (m *APIModule) SetDependencyServiceContainer(dependency string, container mono.ServiceContainer) {
-	switch dependency {
-	case "task":
+	if dependency == "task" {
 		m.taskAdapter = task.NewTaskAdapter(container)
 	}
 }
 
-// Start initializes the Fiber HTTP server.
-// Returns an error if required dependencies are not set.
 func (m *APIModule) Start(_ context.Context) error {
 	if m.taskAdapter == nil {
 		return fmt.Errorf("taskAdapter dependency not set")
@@ -59,15 +49,9 @@ func (m *APIModule) Start(_ context.Context) error {
 		DisableStartupMessage: true,
 		ErrorHandler:          customErrorHandler,
 	})
-
-	// Add recovery middleware
 	m.app.Use(recover.New())
-
-	// Setup routes
 	m.setupRoutes()
 
-	// Start server in goroutine.
-	// Server availability is verified via Health() method.
 	go func() {
 		if err := m.app.Listen(":3000"); err != nil {
 			log.Printf("[api] HTTP server error: %v", err)
@@ -78,8 +62,7 @@ func (m *APIModule) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop shuts down the Fiber HTTP server.
-func (m *APIModule) Stop(ctx context.Context) error {
+func (m *APIModule) Stop(_ context.Context) error {
 	if m.app == nil {
 		return nil
 	}
@@ -87,8 +70,7 @@ func (m *APIModule) Stop(ctx context.Context) error {
 	return m.app.Shutdown()
 }
 
-// Health returns the health status of the module.
-func (m *APIModule) Health(ctx context.Context) mono.HealthStatus {
+func (m *APIModule) Health(_ context.Context) mono.HealthStatus {
 	return mono.HealthStatus{
 		Healthy: m.app != nil,
 		Message: "operational",
@@ -98,7 +80,6 @@ func (m *APIModule) Health(ctx context.Context) mono.HealthStatus {
 	}
 }
 
-// customErrorHandler handles Fiber errors.
 func customErrorHandler(c *fiber.Ctx, err error) error {
 	code := fiber.StatusInternalServerError
 	message := "Internal Server Error"

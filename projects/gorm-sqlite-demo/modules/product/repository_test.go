@@ -207,12 +207,12 @@ func TestRepository_Delete(t *testing.T) {
 
 	// Create a test product
 	product := &Product{
-		ID:          uuid.New().String(),
-		Name:        "To Be Deleted",
-		Price:       9.99,
-		Stock:       10,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:        uuid.New().String(),
+		Name:      "To Be Deleted",
+		Price:     9.99,
+		Stock:     10,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 	if err := db.Create(product).Error; err != nil {
 		t.Fatalf("failed to create test product: %v", err)

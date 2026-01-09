@@ -94,10 +94,10 @@ type JobResponse struct {
 
 // JobListResponse represents the API response for a list of jobs.
 type JobListResponse struct {
-	Jobs   []Job  `json:"jobs"`
-	Total  int    `json:"total"`
-	Offset int    `json:"offset"`
-	Limit  int    `json:"limit"`
+	Jobs   []Job `json:"jobs"`
+	Total  int   `json:"total"`
+	Offset int   `json:"offset"`
+	Limit  int   `json:"limit"`
 }
 
 // Validate validates the CreateJobRequest.

@@ -12,6 +12,36 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// contentTypeByExt maps file extensions to MIME types.
+var contentTypeByExt = map[string]string{
+	".txt":  "text/plain",
+	".html": "text/html",
+	".htm":  "text/html",
+	".css":  "text/css",
+	".js":   "application/javascript",
+	".json": "application/json",
+	".xml":  "application/xml",
+	".pdf":  "application/pdf",
+	".zip":  "application/zip",
+	".tar":  "application/x-tar",
+	".gz":   "application/gzip",
+	".gzip": "application/gzip",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+	".gif":  "image/gif",
+	".svg":  "image/svg+xml",
+	".webp": "image/webp",
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".mp4":  "video/mp4",
+	".webm": "video/webm",
+	".doc":  "application/msword",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xls":  "application/vnd.ms-excel",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
 // Handlers contains HTTP request handlers for file operations.
 type Handlers struct {
 	fileService *fileservice.Service
@@ -20,6 +50,22 @@ type Handlers struct {
 // NewHandlers creates a new handlers instance.
 func NewHandlers(fileService *fileservice.Service) *Handlers {
 	return &Handlers{fileService: fileService}
+}
+
+// handleFileServiceError writes an appropriate HTTP error response for file service errors.
+func handleFileServiceError(c *gin.Context, err error, operation string) {
+	if errors.Is(err, fileservice.ErrFileNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+	if errors.Is(err, fileservice.ErrInvalidFileID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file ID format"})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{
+		"error":   fmt.Sprintf("Failed to %s", operation),
+		"details": err.Error(),
+	})
 }
 
 // UploadFile handles file upload requests (POST /api/v1/files).
@@ -85,12 +131,12 @@ func (h *Handlers) UploadMultipleFiles(c *gin.Context) {
 	}
 
 	var results []fileservice.UploadResult
-	var errors []string
+	var uploadErrors []string
 
 	for _, header := range files {
 		file, err := header.Open()
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("Failed to open %s: %v", header.Filename, err))
+			uploadErrors = append(uploadErrors, fmt.Sprintf("Failed to open %s: %v", header.Filename, err))
 			continue
 		}
 
@@ -102,13 +148,13 @@ func (h *Handlers) UploadMultipleFiles(c *gin.Context) {
 		data, err := io.ReadAll(file)
 		file.Close()
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("Failed to read %s: %v", header.Filename, err))
+			uploadErrors = append(uploadErrors, fmt.Sprintf("Failed to read %s: %v", header.Filename, err))
 			continue
 		}
 
 		result, err := h.fileService.UploadFile(c.Request.Context(), header.Filename, data, contentType)
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("Failed to upload %s: %v", header.Filename, err))
+			uploadErrors = append(uploadErrors, fmt.Sprintf("Failed to upload %s: %v", header.Filename, err))
 			continue
 		}
 
@@ -119,8 +165,8 @@ func (h *Handlers) UploadMultipleFiles(c *gin.Context) {
 		"uploaded": results,
 		"count":    len(results),
 	}
-	if len(errors) > 0 {
-		response["errors"] = errors
+	if len(uploadErrors) > 0 {
+		response["errors"] = uploadErrors
 	}
 
 	c.JSON(http.StatusCreated, response)
@@ -144,31 +190,13 @@ func (h *Handlers) ListFiles(c *gin.Context) {
 func (h *Handlers) GetFile(c *gin.Context) {
 	fileID := c.Param("id")
 	if fileID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "File ID is required",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File ID is required"})
 		return
 	}
 
-	ctx := c.Request.Context()
-	data, info, err := h.fileService.GetFile(ctx, fileID)
+	data, info, err := h.fileService.GetFile(c.Request.Context(), fileID)
 	if err != nil {
-		if errors.Is(err, fileservice.ErrFileNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "File not found",
-			})
-			return
-		}
-		if errors.Is(err, fileservice.ErrInvalidFileID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid file ID format",
-			})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to get file",
-			"details": err.Error(),
-		})
+		handleFileServiceError(c, err, "get file")
 		return
 	}
 
@@ -188,68 +216,30 @@ func (h *Handlers) GetFile(c *gin.Context) {
 func (h *Handlers) GetFileInfo(c *gin.Context) {
 	fileID := c.Param("id")
 	if fileID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "File ID is required",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File ID is required"})
 		return
 	}
 
-	ctx := c.Request.Context()
-	info, err := h.fileService.GetFileInfo(ctx, fileID)
+	info, err := h.fileService.GetFileInfo(c.Request.Context(), fileID)
 	if err != nil {
-		if errors.Is(err, fileservice.ErrFileNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "File not found",
-			})
-			return
-		}
-		if errors.Is(err, fileservice.ErrInvalidFileID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid file ID format",
-			})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to get file info",
-			"details": err.Error(),
-		})
+		handleFileServiceError(c, err, "get file info")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"file": info,
-	})
+	c.JSON(http.StatusOK, gin.H{"file": info})
 }
 
 // DeleteFile handles file deletion requests (DELETE /api/v1/files/:id).
 func (h *Handlers) DeleteFile(c *gin.Context) {
 	fileID := c.Param("id")
 	if fileID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "File ID is required",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File ID is required"})
 		return
 	}
 
-	ctx := c.Request.Context()
-	err := h.fileService.DeleteFile(ctx, fileID)
+	err := h.fileService.DeleteFile(c.Request.Context(), fileID)
 	if err != nil {
-		if errors.Is(err, fileservice.ErrFileNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "File not found",
-			})
-			return
-		}
-		if errors.Is(err, fileservice.ErrInvalidFileID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid file ID format",
-			})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to delete file",
-			"details": err.Error(),
-		})
+		handleFileServiceError(c, err, "delete file")
 		return
 	}
 
@@ -270,54 +260,8 @@ func (h *Handlers) HealthCheck(c *gin.Context) {
 // detectContentType determines the content type based on file extension.
 func detectContentType(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".txt":
-		return "text/plain"
-	case ".html", ".htm":
-		return "text/html"
-	case ".css":
-		return "text/css"
-	case ".js":
-		return "application/javascript"
-	case ".json":
-		return "application/json"
-	case ".xml":
-		return "application/xml"
-	case ".pdf":
-		return "application/pdf"
-	case ".zip":
-		return "application/zip"
-	case ".tar":
-		return "application/x-tar"
-	case ".gz", ".gzip":
-		return "application/gzip"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".gif":
-		return "image/gif"
-	case ".svg":
-		return "image/svg+xml"
-	case ".webp":
-		return "image/webp"
-	case ".mp3":
-		return "audio/mpeg"
-	case ".wav":
-		return "audio/wav"
-	case ".mp4":
-		return "video/mp4"
-	case ".webm":
-		return "video/webm"
-	case ".doc":
-		return "application/msword"
-	case ".docx":
-		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	case ".xls":
-		return "application/vnd.ms-excel"
-	case ".xlsx":
-		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	default:
-		return "application/octet-stream"
+	if contentType, ok := contentTypeByExt[ext]; ok {
+		return contentType
 	}
+	return "application/octet-stream"
 }

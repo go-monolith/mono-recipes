@@ -21,29 +21,29 @@ func NewHandler(service *Service) *Handler {
 
 // CreateJobRequest is the request body for creating a job.
 type CreateJobRequest struct {
-	Type     string      `json:"type"`
-	Payload  interface{} `json:"payload"`
-	Priority int         `json:"priority,omitempty"`
+	Type     string `json:"type"`
+	Payload  any    `json:"payload"`
+	Priority int    `json:"priority,omitempty"`
 }
 
 // JobResponse is the response for a single job.
 type JobResponse struct {
-	ID              string      `json:"id"`
-	Type            string      `json:"type"`
-	Status          string      `json:"status"`
-	Priority        int         `json:"priority"`
-	Payload         interface{} `json:"payload"`
-	Result          interface{} `json:"result,omitempty"`
-	Error           string      `json:"error,omitempty"`
-	Progress        int         `json:"progress"`
-	ProgressMessage string      `json:"progress_message,omitempty"`
-	RetryCount      int         `json:"retry_count"`
-	MaxRetries      int         `json:"max_retries"`
-	WorkerID        string      `json:"worker_id,omitempty"`
-	CreatedAt       string      `json:"created_at"`
-	UpdatedAt       string      `json:"updated_at"`
-	StartedAt       string      `json:"started_at,omitempty"`
-	CompletedAt     string      `json:"completed_at,omitempty"`
+	ID              string `json:"id"`
+	Type            string `json:"type"`
+	Status          string `json:"status"`
+	Priority        int    `json:"priority"`
+	Payload         any    `json:"payload"`
+	Result          any    `json:"result,omitempty"`
+	Error           string `json:"error,omitempty"`
+	Progress        int    `json:"progress"`
+	ProgressMessage string `json:"progress_message,omitempty"`
+	RetryCount      int    `json:"retry_count"`
+	MaxRetries      int    `json:"max_retries"`
+	WorkerID        string `json:"worker_id,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+	StartedAt       string `json:"started_at,omitempty"`
+	CompletedAt     string `json:"completed_at,omitempty"`
 }
 
 // ErrorResponse is the response for errors.
@@ -169,6 +169,9 @@ func (h *Handler) ListJobs(c *fiber.Ctx) error {
 	})
 }
 
+// RFC3339 is the standard time format used for API responses.
+const RFC3339 = "2006-01-02T15:04:05Z07:00"
+
 // toJobResponse converts a job to its response format.
 func (h *Handler) toJobResponse(j *job.Job) *JobResponse {
 	resp := &JobResponse{
@@ -178,25 +181,22 @@ func (h *Handler) toJobResponse(j *job.Job) *JobResponse {
 		Priority:        j.Priority,
 		Payload:         j.Payload,
 		Result:          j.Result,
+		Error:           j.Error,
 		Progress:        j.Progress,
 		ProgressMessage: j.ProgressMessage,
 		RetryCount:      j.RetryCount,
 		MaxRetries:      j.MaxRetries,
 		WorkerID:        j.WorkerID,
-		CreatedAt:       j.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:       j.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-	}
-
-	if j.Error != "" {
-		resp.Error = j.Error
+		CreatedAt:       j.CreatedAt.Format(RFC3339),
+		UpdatedAt:       j.UpdatedAt.Format(RFC3339),
 	}
 
 	if j.StartedAt != nil && !j.StartedAt.IsZero() {
-		resp.StartedAt = j.StartedAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.StartedAt = j.StartedAt.Format(RFC3339)
 	}
 
 	if j.CompletedAt != nil && !j.CompletedAt.IsZero() {
-		resp.CompletedAt = j.CompletedAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.CompletedAt = j.CompletedAt.Format(RFC3339)
 	}
 
 	return resp

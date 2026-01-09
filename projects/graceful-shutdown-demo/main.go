@@ -42,16 +42,12 @@ func main() {
 	log.Println("  - http://localhost:3000/slow (5 second delay)")
 	log.Println("Press Ctrl+C to trigger graceful shutdown")
 
-	// Setup graceful shutdown using gelmium/graceful-shutdown
-	// This handles OS signals (SIGINT, SIGTERM, etc.)
+	// Wait for OS signals (SIGINT, SIGTERM) and perform graceful shutdown
 	wait := gfshutdown.GracefulShutdown(
 		context.Background(),
 		shutdownTimeout,
 		map[string]gfshutdown.Operation{
-			"mono-app": func(ctx context.Context) error {
-				log.Println("Graceful shutdown initiated...")
-				return app.Stop(ctx)
-			},
+			"mono-app": shutdownApp(app),
 		},
 	)
 
@@ -59,4 +55,12 @@ func main() {
 	exitCode := <-wait
 	log.Printf("Application exited with code: %d", exitCode)
 	os.Exit(exitCode)
+}
+
+// shutdownApp returns a graceful shutdown operation for the mono application.
+func shutdownApp(app mono.MonoApplication) gfshutdown.Operation {
+	return func(ctx context.Context) error {
+		log.Println("Graceful shutdown initiated...")
+		return app.Stop(ctx)
+	}
 }

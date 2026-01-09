@@ -201,16 +201,10 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 	return nil
 }
 
-// invalidateCaches removes the product from cache and invalidates all cache.
+// invalidateCaches clears all cached data.
+// Uses InvalidateAll since list caches also need to be invalidated when any product changes.
 func (s *Service) invalidateCaches(ctx context.Context, id uint) {
-	// Invalidate individual product cache
-	cacheKey := cacheKeyByID(id)
-	if err := s.cache.Delete(ctx, cacheKey); err != nil {
-		log.Printf("[product] Warning: failed to invalidate cache for ID=%d: %v", id, err)
-	}
-
-	// Invalidate all cache (replaces pattern-based deletion)
 	if err := s.cache.InvalidateAll(ctx); err != nil {
-		log.Printf("[product] Warning: failed to invalidate all cache: %v", err)
+		log.Printf("[product] Warning: failed to invalidate cache for ID=%d: %v", id, err)
 	}
 }

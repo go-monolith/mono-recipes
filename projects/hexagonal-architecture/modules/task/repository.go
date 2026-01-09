@@ -53,14 +53,14 @@ func (r *TaskRepository) Delete(taskID string) error {
 	return nil
 }
 
-// FindByUserID finds all tasks for a user.
+// FindByUserID finds all tasks for a specific user.
 func (r *TaskRepository) FindByUserID(userID string) []*domain.Task {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var result []*domain.Task
 	for _, task := range r.tasks {
-		if userID == "" || task.UserID == userID {
+		if task.UserID == userID {
 			result = append(result, task)
 		}
 	}

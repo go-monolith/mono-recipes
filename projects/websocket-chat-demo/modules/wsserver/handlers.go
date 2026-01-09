@@ -42,7 +42,7 @@ type MessagePayload struct {
 type rateLimiter struct {
 	tokens     int
 	maxTokens  int
-	refillRate int       // tokens per second
+	refillRate int // tokens per second
 	lastRefill time.Time
 	mu         sync.Mutex
 }
@@ -261,7 +261,7 @@ func (h *Handlers) handleChatMessage(cw *connWrapper, userID string, payload jso
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	_, exists, err := h.chatAdapter.GetUser(ctx, userID)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get user")
 		return
@@ -276,8 +276,7 @@ func (h *Handlers) handleChatMessage(cw *connWrapper, userID string, payload jso
 		return
 	}
 
-	// Note: Broadcast is handled by event consumer in module.go
-	_ = user // user info available if needed for response
+	// Broadcast is handled by event consumer in module.go
 }
 
 // handleHistory sends message history to the client.

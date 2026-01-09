@@ -9,7 +9,7 @@ import (
 	"github.com/go-monolith/mono"
 )
 
-// WorkerModule implements the mono WorkerModule interface for a background worker
+// WorkerModule implements the mono Module interface for a background worker.
 type WorkerModule struct {
 	stopChan chan struct{}
 	doneChan chan struct{}
@@ -19,24 +19,23 @@ type WorkerModule struct {
 // Compile-time interface check
 var _ mono.Module = (*WorkerModule)(nil)
 
-// Name returns the module name
+// Name returns the module name.
 func (m *WorkerModule) Name() string {
 	return "worker"
 }
 
-// Start initializes and starts the background worker
-func (m *WorkerModule) Start(ctx context.Context) error {
+// Start initializes and starts the background worker.
+func (m *WorkerModule) Start(_ context.Context) error {
 	m.stopChan = make(chan struct{})
 	m.doneChan = make(chan struct{})
 
-	// Start worker in a goroutine
 	go m.run()
 
 	log.Println("Background worker started")
 	return nil
 }
 
-// run executes the worker's periodic tasks
+// run executes the worker's periodic tasks.
 func (m *WorkerModule) run() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -55,11 +54,10 @@ func (m *WorkerModule) run() {
 	}
 }
 
-// performTask simulates a background task
+// performTask simulates a background task that can be interrupted.
 func (m *WorkerModule) performTask(taskID int) {
 	log.Printf("Background worker: Processing task #%d...\n", taskID)
 
-	// Use context-aware sleep to allow interruption during shutdown
 	select {
 	case <-time.After(500 * time.Millisecond):
 		log.Printf("Background worker: Task #%d completed\n", taskID)
@@ -68,7 +66,7 @@ func (m *WorkerModule) performTask(taskID int) {
 	}
 }
 
-// Stop gracefully shuts down the background worker
+// Stop gracefully shuts down the background worker.
 func (m *WorkerModule) Stop(ctx context.Context) error {
 	if m.stopChan == nil {
 		return nil
@@ -76,12 +74,10 @@ func (m *WorkerModule) Stop(ctx context.Context) error {
 
 	log.Println("Shutting down background worker...")
 
-	// Signal the worker to stop (safe to call multiple times)
 	m.stopOnce.Do(func() {
 		close(m.stopChan)
 	})
 
-	// Wait for the worker to complete its current task
 	select {
 	case <-m.doneChan:
 		log.Println("Background worker stopped gracefully")

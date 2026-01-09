@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 
@@ -133,9 +134,10 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 	code := fiber.StatusInternalServerError
 	message := "Internal Server Error"
 
-	if e, ok := err.(*fiber.Error); ok {
-		code = e.Code
-		message = e.Message
+	var fiberErr *fiber.Error
+	if errors.As(err, &fiberErr) {
+		code = fiberErr.Code
+		message = fiberErr.Message
 	}
 
 	return c.Status(code).JSON(ErrorResponse{

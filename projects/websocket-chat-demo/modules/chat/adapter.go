@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/go-monolith/mono"
@@ -38,7 +39,7 @@ func (a *ServiceAdapter) CreateRoom(ctx context.Context, name string) (*Room, er
 	}
 
 	if resp.Error != "" {
-		return nil, fmt.Errorf("%s", resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 	return resp.Room, nil
 }
@@ -61,7 +62,7 @@ func (a *ServiceAdapter) GetRoom(ctx context.Context, roomID string) (*Room, boo
 	}
 
 	if resp.Error != "" {
-		return nil, false, fmt.Errorf("%s", resp.Error)
+		return nil, false, errors.New(resp.Error)
 	}
 	return resp.Room, resp.Exists, nil
 }
@@ -108,7 +109,7 @@ func (a *ServiceAdapter) JoinRoom(ctx context.Context, roomID, userID, username 
 	}
 
 	if resp.Error != "" {
-		return nil, fmt.Errorf("%s", resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 	return resp.User, nil
 }
@@ -131,7 +132,7 @@ func (a *ServiceAdapter) LeaveRoom(ctx context.Context, userID string) error {
 	}
 
 	if resp.Error != "" {
-		return fmt.Errorf("%s", resp.Error)
+		return errors.New(resp.Error)
 	}
 	return nil
 }
@@ -157,7 +158,7 @@ func (a *ServiceAdapter) SendMessage(ctx context.Context, userID, content string
 	}
 
 	if resp.Error != "" {
-		return fmt.Errorf("%s", resp.Error)
+		return errors.New(resp.Error)
 	}
 	return nil
 }
@@ -180,7 +181,7 @@ func (a *ServiceAdapter) GetUser(ctx context.Context, userID string) (*User, boo
 	}
 
 	if resp.Error != "" {
-		return nil, false, fmt.Errorf("%s", resp.Error)
+		return nil, false, errors.New(resp.Error)
 	}
 	return resp.User, resp.Exists, nil
 }
@@ -206,7 +207,7 @@ func (a *ServiceAdapter) GetHistory(ctx context.Context, roomID string, limit in
 	}
 
 	if resp.Error != "" {
-		return nil, fmt.Errorf("%s", resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 	return resp.Messages, nil
 }
@@ -229,7 +230,7 @@ func (a *ServiceAdapter) GetRoomUsers(ctx context.Context, roomID string) ([]Use
 	}
 
 	if resp.Error != "" {
-		return nil, fmt.Errorf("%s", resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 	return resp.Users, nil
 }

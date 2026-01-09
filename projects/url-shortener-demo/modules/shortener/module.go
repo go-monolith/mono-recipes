@@ -155,31 +155,23 @@ func (m *Module) RegisterServices(container mono.ServiceContainer) error {
 
 // Service handler functions
 
+// marshalErrorResponse creates a JSON error response.
+func marshalErrorResponse(errMsg string) ([]byte, error) {
+	return json.Marshal(map[string]string{"error": errMsg})
+}
+
 // handleShortenURL handles shorten-url service requests.
 func (m *Module) handleShortenURL(ctx context.Context, msg *mono.Msg) ([]byte, error) {
 	var req ShortenRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": fmt.Sprintf("invalid request: %v", err),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(fmt.Sprintf("invalid request: %v", err))
 	}
 
 	result, err := m.service.ShortenURL(ctx, req)
 	if err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": err.Error(),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(err.Error())
 	}
 
-	// Publish URLCreated event internally
 	if publishErr := m.PublishURLCreated(URLCreatedEvent{
 		ShortCode:   result.ShortCode,
 		OriginalURL: result.OriginalURL,
@@ -191,42 +183,21 @@ func (m *Module) handleShortenURL(ctx context.Context, msg *mono.Msg) ([]byte, e
 			"error", publishErr)
 	}
 
-	respData, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal response: %w", err)
-	}
-	return respData, nil
+	return json.Marshal(result)
 }
 
 // handleResolveURL handles resolve-url service requests.
 func (m *Module) handleResolveURL(ctx context.Context, msg *mono.Msg) ([]byte, error) {
-	var req struct {
-		ShortCode string `json:"short_code"`
-		UserAgent string `json:"user_agent,omitempty"`
-		IPAddress string `json:"ip_address,omitempty"`
-	}
+	var req ResolveRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": fmt.Sprintf("invalid request: %v", err),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(fmt.Sprintf("invalid request: %v", err))
 	}
 
 	originalURL, err := m.service.ResolveAndTrack(ctx, req.ShortCode)
 	if err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": err.Error(),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(err.Error())
 	}
 
-	// Publish URLAccessed event internally
 	if publishErr := m.PublishURLAccessed(URLAccessedEvent{
 		ShortCode:   req.ShortCode,
 		OriginalURL: originalURL,
@@ -239,107 +210,47 @@ func (m *Module) handleResolveURL(ctx context.Context, msg *mono.Msg) ([]byte, e
 			"error", publishErr)
 	}
 
-	response := struct {
-		OriginalURL string `json:"original_url"`
-	}{
-		OriginalURL: originalURL,
-	}
-	respData, err := json.Marshal(response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal response: %w", err)
-	}
-	return respData, nil
+	return json.Marshal(ResolveResponse{OriginalURL: originalURL})
 }
 
 // handleGetStats handles get-stats service requests.
 func (m *Module) handleGetStats(ctx context.Context, msg *mono.Msg) ([]byte, error) {
-	var req struct {
-		ShortCode string `json:"short_code"`
-	}
+	var req ShortCodeRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": fmt.Sprintf("invalid request: %v", err),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(fmt.Sprintf("invalid request: %v", err))
 	}
 
 	stats, err := m.service.GetStats(ctx, req.ShortCode)
 	if err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": err.Error(),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(err.Error())
 	}
 
-	respData, err := json.Marshal(stats)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal response: %w", err)
-	}
-	return respData, nil
+	return json.Marshal(stats)
 }
 
 // handleListURLs handles list-urls service requests.
 func (m *Module) handleListURLs(ctx context.Context, msg *mono.Msg) ([]byte, error) {
 	urls, err := m.service.ListURLs(ctx)
 	if err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": err.Error(),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(err.Error())
 	}
 
-	respData, err := json.Marshal(urls)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal response: %w", err)
-	}
-	return respData, nil
+	return json.Marshal(urls)
 }
 
 // handleDeleteURL handles delete-url service requests.
 func (m *Module) handleDeleteURL(ctx context.Context, msg *mono.Msg) ([]byte, error) {
-	var req struct {
-		ShortCode string `json:"short_code"`
-	}
+	var req ShortCodeRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": fmt.Sprintf("invalid request: %v", err),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+		return marshalErrorResponse(fmt.Sprintf("invalid request: %v", err))
 	}
 
-	err := m.service.DeleteURL(ctx, req.ShortCode)
-	if err != nil {
-		errResp, marshalErr := json.Marshal(map[string]string{
-			"error": err.Error(),
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("failed to marshal error response: %w", marshalErr)
-		}
-		return errResp, nil
+	if err := m.service.DeleteURL(ctx, req.ShortCode); err != nil {
+		return marshalErrorResponse(err.Error())
 	}
 
-	response := struct {
-		Message   string `json:"message"`
-		ShortCode string `json:"short_code"`
-	}{
+	return json.Marshal(DeleteResponse{
 		Message:   "URL deleted successfully",
 		ShortCode: req.ShortCode,
-	}
-	respData, err := json.Marshal(response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal response: %w", err)
-	}
-	return respData, nil
+	})
 }

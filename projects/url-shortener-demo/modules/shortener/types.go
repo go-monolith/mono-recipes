@@ -36,6 +36,29 @@ type StatsResponse struct {
 	ExpiresAt   time.Time `json:"expires_at,omitempty"`
 }
 
+// ShortCodeRequest is a request containing only a short code.
+type ShortCodeRequest struct {
+	ShortCode string `json:"short_code"`
+}
+
+// ResolveRequest is the request payload for resolving a short URL.
+type ResolveRequest struct {
+	ShortCode string `json:"short_code"`
+	UserAgent string `json:"user_agent,omitempty"`
+	IPAddress string `json:"ip_address,omitempty"`
+}
+
+// ResolveResponse is the response after resolving a short URL.
+type ResolveResponse struct {
+	OriginalURL string `json:"original_url"`
+}
+
+// DeleteResponse is the response after deleting a short URL.
+type DeleteResponse struct {
+	Message   string `json:"message"`
+	ShortCode string `json:"short_code"`
+}
+
 // URLAccessedEvent is published when a shortened URL is accessed.
 type URLAccessedEvent struct {
 	ShortCode   string    `json:"short_code"`

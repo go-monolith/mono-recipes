@@ -33,11 +33,11 @@ type Module struct {
 
 // Compile-time interface checks
 var (
-	_ mono.Module                 = (*Module)(nil)
-	_ mono.EventBusAwareModule    = (*Module)(nil)
-	_ mono.EventEmitterModule     = (*Module)(nil)
-	_ mono.EventConsumerModule    = (*Module)(nil)
-	_ mono.ServiceProviderModule  = (*Module)(nil)
+	_ mono.Module                = (*Module)(nil)
+	_ mono.EventBusAwareModule   = (*Module)(nil)
+	_ mono.EventEmitterModule    = (*Module)(nil)
+	_ mono.EventConsumerModule   = (*Module)(nil)
+	_ mono.ServiceProviderModule = (*Module)(nil)
 )
 
 // NewModule creates a new chat module.

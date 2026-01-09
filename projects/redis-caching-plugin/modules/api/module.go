@@ -115,17 +115,14 @@ func (m *Module) Stop(_ context.Context) error {
 
 // errorHandler handles errors from Fiber routes.
 func (m *Module) errorHandler(c *fiber.Ctx, err error) error {
-	code := fiber.StatusInternalServerError
-	message := "Internal Server Error"
-
-	if e, ok := err.(*fiber.Error); ok {
-		code = e.Code
-		message = e.Message
+	e, ok := err.(*fiber.Error)
+	if !ok {
+		e = fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	return c.Status(code).JSON(fiber.Map{
-		"error":  message,
-		"code":   code,
+	return c.Status(e.Code).JSON(fiber.Map{
+		"error":  e.Message,
+		"code":   e.Code,
 		"path":   c.Path(),
 		"method": c.Method(),
 	})

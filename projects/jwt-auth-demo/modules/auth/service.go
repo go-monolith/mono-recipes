@@ -24,9 +24,9 @@ var (
 
 // AuthService handles authentication business logic.
 type AuthService struct {
-	repo     *UserRepository
-	hasher   *PasswordHasher
-	jwt      *JWTManager
+	repo   *UserRepository
+	hasher *PasswordHasher
+	jwt    *JWTManager
 }
 
 // NewAuthService creates a new AuthService.
@@ -163,4 +163,3 @@ func (s *AuthService) generateTokenPair(userID, email string) (*domain.TokenPair
 		TokenType:    "Bearer",
 	}, nil
 }
-

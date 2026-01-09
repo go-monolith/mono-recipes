@@ -78,9 +78,8 @@ func (m *AuthModule) Start(_ context.Context) error {
 // Stop shuts down the module.
 func (m *AuthModule) Stop(_ context.Context) error {
 	if m.db != nil {
-		sqlDB, err := m.db.DB()
-		if err == nil {
-			sqlDB.Close()
+		if sqlDB, err := m.db.DB(); err == nil {
+			_ = sqlDB.Close()
 		}
 	}
 	log.Println("[auth] Module stopped")

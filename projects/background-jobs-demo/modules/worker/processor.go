@@ -6,15 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/example/background-jobs-demo/domain/job"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 // Processor processes jobs based on their type.
 type Processor struct{}
@@ -84,12 +80,8 @@ func (p *Processor) processEmail(ctx context.Context, j *job.Job, progressFn fun
 		return nil, err
 	}
 
-	messageIDSuffix := j.ID
-	if len(j.ID) >= 8 {
-		messageIDSuffix = j.ID[:8]
-	}
 	result := map[string]any{
-		"message_id": fmt.Sprintf("msg_%s", messageIDSuffix),
+		"message_id": fmt.Sprintf("msg_%s", truncateID(j.ID, 8)),
 		"status":     "delivered",
 		"recipient":  payload.To,
 	}
@@ -205,8 +197,8 @@ func (p *Processor) processReportGeneration(ctx context.Context, j *job.Job, pro
 		"report_type":  payload.ReportType,
 		"format":       payload.Format,
 		"download_url": fmt.Sprintf("/reports/%s.%s", j.ID, payload.Format),
-		"pages":        rand.Intn(50) + 10,
-		"size":         fmt.Sprintf("%.1fMB", float64(rand.Intn(10)+1)/2),
+		"pages":        rand.IntN(50) + 10,
+		"size":         fmt.Sprintf("%.1fMB", float64(rand.IntN(10)+1)/2),
 	}
 
 	progressFn(100, "Report generation completed")
@@ -221,4 +213,12 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	case <-time.After(d):
 		return nil
 	}
+}
+
+// truncateID returns the first n characters of an ID, or the full ID if shorter.
+func truncateID(id string, n int) string {
+	if len(id) >= n {
+		return id[:n]
+	}
+	return id
 }

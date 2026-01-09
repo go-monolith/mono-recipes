@@ -222,19 +222,23 @@ const maxClientIDLength = 128
 // extractClientID extracts the client ID from request headers.
 // It sanitizes and truncates the value to prevent abuse.
 func (m *Middleware) extractClientID(req *types.Msg) string {
-	if req.Header != nil {
-		if values, ok := req.Header[m.config.ClientIDHeader]; ok && len(values) > 0 {
-			clientID := values[0]
-			// Truncate excessively long client IDs
-			if len(clientID) > maxClientIDLength {
-				clientID = clientID[:maxClientIDLength]
-			}
-			// Skip empty client IDs
-			if clientID == "" {
-				return m.config.FallbackClientID
-			}
-			return clientID
-		}
+	if req.Header == nil {
+		return m.config.FallbackClientID
 	}
-	return m.config.FallbackClientID
+
+	values, ok := req.Header[m.config.ClientIDHeader]
+	if !ok || len(values) == 0 {
+		return m.config.FallbackClientID
+	}
+
+	clientID := values[0]
+	if clientID == "" {
+		return m.config.FallbackClientID
+	}
+
+	if len(clientID) > maxClientIDLength {
+		return clientID[:maxClientIDLength]
+	}
+
+	return clientID
 }

@@ -2,26 +2,33 @@ package product
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/go-monolith/mono"
 	"github.com/google/uuid"
 )
 
+// Validation errors.
+var (
+	errNameRequired  = errors.New("name is required")
+	errNameEmpty     = errors.New("name cannot be empty")
+	errIDRequired    = errors.New("id is required")
+	errPriceNegative = errors.New("price must be non-negative")
+	errStockNegative = errors.New("stock must be non-negative")
+)
+
 // createProduct handles the product.create service request.
 func (m *ProductModule) createProduct(_ context.Context, req CreateProductRequest, _ *mono.Msg) (CreateProductResponse, error) {
-	// Validate request
 	if req.Name == "" {
-		return CreateProductResponse{}, fmt.Errorf("name is required")
+		return CreateProductResponse{}, errNameRequired
 	}
 	if req.Price < 0 {
-		return CreateProductResponse{}, fmt.Errorf("price must be non-negative")
+		return CreateProductResponse{}, errPriceNegative
 	}
 	if req.Stock < 0 {
-		return CreateProductResponse{}, fmt.Errorf("stock must be non-negative")
+		return CreateProductResponse{}, errStockNegative
 	}
 
-	// Create product entity (GORM handles CreatedAt/UpdatedAt automatically)
 	product := &Product{
 		ID:          uuid.New().String(),
 		Name:        req.Name,
@@ -30,9 +37,8 @@ func (m *ProductModule) createProduct(_ context.Context, req CreateProductReques
 		Stock:       req.Stock,
 	}
 
-	// Save to repository
 	if err := m.repo.Create(product); err != nil {
-		return CreateProductResponse{}, fmt.Errorf("failed to save product: %w", err)
+		return CreateProductResponse{}, err
 	}
 
 	return CreateProductResponse{
@@ -48,7 +54,7 @@ func (m *ProductModule) createProduct(_ context.Context, req CreateProductReques
 // getProduct handles the product.get service request.
 func (m *ProductModule) getProduct(_ context.Context, req GetProductRequest, _ *mono.Msg) (ProductResponse, error) {
 	if req.ID == "" {
-		return ProductResponse{}, fmt.Errorf("id is required")
+		return ProductResponse{}, errIDRequired
 	}
 
 	product, err := m.repo.FindByID(req.ID)
@@ -81,7 +87,7 @@ func (m *ProductModule) listProducts(_ context.Context, _ ListProductsRequest, _
 // updateProduct handles the product.update service request.
 func (m *ProductModule) updateProduct(_ context.Context, req UpdateProductRequest, _ *mono.Msg) (ProductResponse, error) {
 	if req.ID == "" {
-		return ProductResponse{}, fmt.Errorf("id is required")
+		return ProductResponse{}, errIDRequired
 	}
 
 	product, err := m.repo.FindByID(req.ID)
@@ -89,10 +95,9 @@ func (m *ProductModule) updateProduct(_ context.Context, req UpdateProductReques
 		return ProductResponse{}, err
 	}
 
-	// Update fields if provided (GORM handles UpdatedAt automatically)
 	if req.Name != nil {
 		if *req.Name == "" {
-			return ProductResponse{}, fmt.Errorf("name cannot be empty")
+			return ProductResponse{}, errNameEmpty
 		}
 		product.Name = *req.Name
 	}
@@ -101,19 +106,19 @@ func (m *ProductModule) updateProduct(_ context.Context, req UpdateProductReques
 	}
 	if req.Price != nil {
 		if *req.Price < 0 {
-			return ProductResponse{}, fmt.Errorf("price must be non-negative")
+			return ProductResponse{}, errPriceNegative
 		}
 		product.Price = *req.Price
 	}
 	if req.Stock != nil {
 		if *req.Stock < 0 {
-			return ProductResponse{}, fmt.Errorf("stock must be non-negative")
+			return ProductResponse{}, errStockNegative
 		}
 		product.Stock = *req.Stock
 	}
 
 	if err := m.repo.Update(product); err != nil {
-		return ProductResponse{}, fmt.Errorf("failed to update product: %w", err)
+		return ProductResponse{}, err
 	}
 
 	return toProductResponse(product), nil
@@ -122,11 +127,11 @@ func (m *ProductModule) updateProduct(_ context.Context, req UpdateProductReques
 // deleteProduct handles the product.delete service request.
 func (m *ProductModule) deleteProduct(_ context.Context, req DeleteProductRequest, _ *mono.Msg) (DeleteProductResponse, error) {
 	if req.ID == "" {
-		return DeleteProductResponse{Deleted: false}, fmt.Errorf("id is required")
+		return DeleteProductResponse{}, errIDRequired
 	}
 
 	if err := m.repo.Delete(req.ID); err != nil {
-		return DeleteProductResponse{Deleted: false, ID: req.ID}, err
+		return DeleteProductResponse{ID: req.ID}, err
 	}
 
 	return DeleteProductResponse{Deleted: true, ID: req.ID}, nil

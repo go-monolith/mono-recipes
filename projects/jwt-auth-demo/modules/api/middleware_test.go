@@ -184,4 +184,3 @@ func TestAuthMiddleware_UserContext(t *testing.T) {
 		t.Errorf("claims.Email = %v, want %v", capturedClaims.Email, "context@example.com")
 	}
 }
-

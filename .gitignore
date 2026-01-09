@@ -225,6 +225,7 @@ Thumbs.db
 *.tmp
 *.temp
 *.backup
+*.db
 
 # Local AI Agent files
 *.local.json

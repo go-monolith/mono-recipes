@@ -24,19 +24,8 @@ func NewHandlers(productService *productmod.Service) *Handlers {
 
 // ListProducts handles GET /api/v1/products.
 func (h *Handlers) ListProducts(c *fiber.Ctx) error {
-	offset := c.QueryInt("offset", 0)
-	limit := c.QueryInt("limit", 20)
-
-	// Validate pagination parameters
-	if offset < 0 {
-		offset = 0
-	}
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100 // Cap at 100
-	}
+	offset := max(c.QueryInt("offset", 0), 0)
+	limit := min(max(c.QueryInt("limit", 20), 1), 100)
 
 	start := time.Now()
 	products, total, fromCache, err := h.productService.List(c.Context(), offset, limit)

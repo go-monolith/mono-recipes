@@ -52,8 +52,8 @@ func (r *Repository) FindAll() ([]*Product, error) {
 // Update updates an existing product.
 func (r *Repository) Update(product *Product) error {
 	result := r.db.Model(&Product{}).Where("id = ?", product.ID).Updates(product)
-	if result.Error != nil {
-		return fmt.Errorf("failed to update product: %w", result.Error)
+	if err := result.Error; err != nil {
+		return fmt.Errorf("failed to update product: %w", err)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -64,8 +64,8 @@ func (r *Repository) Update(product *Product) error {
 // Delete removes a product by ID (soft delete).
 func (r *Repository) Delete(id string) error {
 	result := r.db.Delete(&Product{}, "id = ?", id)
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete product: %w", result.Error)
+	if err := result.Error; err != nil {
+		return fmt.Errorf("failed to delete product: %w", err)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound

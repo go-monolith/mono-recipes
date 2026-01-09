@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"errors"
-	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -14,7 +13,6 @@ import (
 type Handlers struct {
 	shortener shortener.ShortenerAdapterPort
 	analytics analytics.AnalyticsAdapterPort
-	logger    *slog.Logger
 }
 
 // NewHandlers creates a new handlers instance.
@@ -22,7 +20,6 @@ func NewHandlers(shortener shortener.ShortenerAdapterPort, analytics analytics.A
 	return &Handlers{
 		shortener: shortener,
 		analytics: analytics,
-		logger:    slog.Default(),
 	}
 }
 

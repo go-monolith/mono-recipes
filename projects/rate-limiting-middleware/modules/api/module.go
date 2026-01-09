@@ -26,9 +26,9 @@ type Module struct {
 
 // Compile-time interface checks
 var (
-	_ mono.Module                  = (*Module)(nil)
-	_ mono.ServiceProviderModule   = (*Module)(nil)
-	_ mono.HealthCheckableModule   = (*Module)(nil)
+	_ mono.Module                = (*Module)(nil)
+	_ mono.ServiceProviderModule = (*Module)(nil)
+	_ mono.HealthCheckableModule = (*Module)(nil)
 )
 
 // NewModule creates a new API module.
@@ -58,28 +58,19 @@ func (m *Module) Stop(_ context.Context) error {
 
 // RegisterServices registers the API services.
 func (m *Module) RegisterServices(container mono.ServiceContainer) error {
-	// Register get-data service
-	if err := container.RegisterRequestReplyService(
-		ServiceGetData,
-		m.handleGetData,
-	); err != nil {
-		return fmt.Errorf("failed to register %s: %w", ServiceGetData, err)
+	services := []struct {
+		name    string
+		handler types.RequestReplyHandler
+	}{
+		{ServiceGetData, m.handleGetData},
+		{ServiceCreateOrder, m.handleCreateOrder},
+		{ServiceGetStatus, m.handleGetStatus},
 	}
 
-	// Register create-order service
-	if err := container.RegisterRequestReplyService(
-		ServiceCreateOrder,
-		m.handleCreateOrder,
-	); err != nil {
-		return fmt.Errorf("failed to register %s: %w", ServiceCreateOrder, err)
-	}
-
-	// Register get-status service
-	if err := container.RegisterRequestReplyService(
-		ServiceGetStatus,
-		m.handleGetStatus,
-	); err != nil {
-		return fmt.Errorf("failed to register %s: %w", ServiceGetStatus, err)
+	for _, svc := range services {
+		if err := container.RegisterRequestReplyService(svc.name, svc.handler); err != nil {
+			return fmt.Errorf("failed to register %s: %w", svc.name, err)
+		}
 	}
 
 	m.logger.Info("Registered API services",

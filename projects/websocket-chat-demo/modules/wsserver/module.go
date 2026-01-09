@@ -27,11 +27,11 @@ var (
 
 // Module implements the WebSocket server module using Fiber framework.
 type Module struct {
-	app          *fiber.App
-	handlers     *Handlers
-	addr         string
-	chatAdapter  *chat.ServiceAdapter
-	logger       types.Logger
+	app         *fiber.App
+	handlers    *Handlers
+	addr        string
+	chatAdapter *chat.ServiceAdapter
+	logger      types.Logger
 }
 
 // NewModule creates a new WebSocket server module.

@@ -121,11 +121,11 @@ func ValidateMessage(content string) error {
 
 // RoomStore provides thread-safe storage for rooms and messages.
 type RoomStore struct {
-	mu       sync.RWMutex
-	rooms    map[string]*Room
-	users    map[string]*User            // userID -> User
-	messages map[string][]Message        // roomID -> messages
-	roomUsers map[string]map[string]bool // roomID -> set of userIDs
+	mu         sync.RWMutex
+	rooms      map[string]*Room
+	users      map[string]*User           // userID -> User
+	messages   map[string][]Message       // roomID -> messages
+	roomUsers  map[string]map[string]bool // roomID -> set of userIDs
 	maxHistory int
 }
 
@@ -283,10 +283,6 @@ func (s *RoomStore) GetHistory(roomID string, limit int) []Message {
 	}
 
 	start := len(messages) - limit
-	if start < 0 {
-		start = 0
-	}
-
 	result := make([]Message, limit)
 	copy(result, messages[start:])
 	return result

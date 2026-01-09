@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const defaultContentType = "application/octet-stream"
+
 // sanitizeFilename removes path separators and dangerous characters from filename.
 func sanitizeFilename(filename string) string {
 	// Get just the base filename without any directory components
@@ -43,6 +45,45 @@ func extractOriginalFilename(storageKey, fileID string) string {
 		return storageKey[len(fileID)+1:]
 	}
 	return storageKey
+}
+
+// getContentType extracts the content type from headers, falling back to default.
+func getContentType(headers map[string]string) string {
+	if ct, ok := headers["Content-Type"]; ok {
+		return ct
+	}
+	return defaultContentType
+}
+
+// findFileByID looks up a file by its ID prefix and returns the first match.
+func (s *Service) findFileByID(fileID string) (*fsjetstream.ObjectInfo, error) {
+	if err := validateFileID(fileID); err != nil {
+		return nil, err
+	}
+
+	files, err := s.bucket.List(fsjetstream.WithPrefix(fileID + "/"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files: %w", err)
+	}
+
+	if len(files) == 0 {
+		return nil, ErrFileNotFound
+	}
+
+	return &files[0], nil
+}
+
+// buildFileInfo creates a FileInfo from an ObjectInfo and file ID.
+func buildFileInfo(fileID string, obj *fsjetstream.ObjectInfo) *FileInfo {
+	return &FileInfo{
+		ID:          fileID,
+		Name:        extractOriginalFilename(obj.Name, fileID),
+		Size:        int64(obj.Size),
+		ContentType: getContentType(obj.Headers),
+		Digest:      obj.Digest,
+		CreatedAt:   obj.ModTime,
+		Headers:     obj.Headers,
+	}
 }
 
 // Service provides file storage operations using the fs-jetstream plugin.
@@ -147,86 +188,32 @@ func (s *Service) UploadFileStream(ctx context.Context, filename string, reader 
 
 // GetFile retrieves a file by its ID.
 func (s *Service) GetFile(ctx context.Context, fileID string) ([]byte, *FileInfo, error) {
-	// Validate file ID format
-	if err := validateFileID(fileID); err != nil {
+	obj, err := s.findFileByID(fileID)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	// List files to find the one with matching ID prefix
-	files, err := s.bucket.List(fsjetstream.WithPrefix(fileID + "/"))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list files: %w", err)
-	}
-
-	if len(files) == 0 {
-		return nil, nil, ErrFileNotFound
-	}
-
-	// Get the first matching file
-	fileInfo := files[0]
-	data, err := s.bucket.Get(fileInfo.Name)
+	data, err := s.bucket.Get(obj.Name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get file: %w", err)
 	}
 
-	contentType := "application/octet-stream"
-	if ct, ok := fileInfo.Headers["Content-Type"]; ok {
-		contentType = ct
-	}
-
-	info := &FileInfo{
-		ID:          fileID,
-		Name:        extractOriginalFilename(fileInfo.Name, fileID),
-		Size:        int64(fileInfo.Size),
-		ContentType: contentType,
-		Digest:      fileInfo.Digest,
-		CreatedAt:   fileInfo.ModTime,
-		Headers:     fileInfo.Headers,
-	}
-
-	return data, info, nil
+	return data, buildFileInfo(fileID, obj), nil
 }
 
 // GetFileStream retrieves a file as a stream (for large files).
 func (s *Service) GetFileStream(ctx context.Context, fileID string) (io.ReadCloser, *FileInfo, error) {
-	// Validate file ID format
-	if err := validateFileID(fileID); err != nil {
+	obj, err := s.findFileByID(fileID)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	// List files to find the one with matching ID prefix
-	files, err := s.bucket.List(fsjetstream.WithPrefix(fileID + "/"))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list files: %w", err)
-	}
-
-	if len(files) == 0 {
-		return nil, nil, ErrFileNotFound
-	}
-
-	// Get the first matching file
-	fileInfo := files[0]
-	reader, _, err := s.bucket.GetReader(fileInfo.Name)
+	reader, _, err := s.bucket.GetReader(obj.Name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get file stream: %w", err)
 	}
 
-	contentType := "application/octet-stream"
-	if ct, ok := fileInfo.Headers["Content-Type"]; ok {
-		contentType = ct
-	}
-
-	info := &FileInfo{
-		ID:          fileID,
-		Name:        extractOriginalFilename(fileInfo.Name, fileID),
-		Size:        int64(fileInfo.Size),
-		ContentType: contentType,
-		Digest:      fileInfo.Digest,
-		CreatedAt:   fileInfo.ModTime,
-		Headers:     fileInfo.Headers,
-	}
-
-	return reader, info, nil
+	return reader, buildFileInfo(fileID, obj), nil
 }
 
 // ListFiles returns all stored files.
@@ -242,30 +229,16 @@ func (s *Service) ListFiles(ctx context.Context) (*ListResult, error) {
 	fileMap := make(map[string]FileInfo)
 	for _, f := range files {
 		// Extract file ID from storage key (format: fileID/filename)
-		fileID := ""
-		originalName := f.Name
-		for i, c := range f.Name {
-			if c == '/' {
-				fileID = f.Name[:i]
-				originalName = f.Name[i+1:]
-				break
-			}
-		}
-
-		if fileID == "" {
+		fileID, _, found := strings.Cut(f.Name, "/")
+		if !found {
 			continue
-		}
-
-		contentType := "application/octet-stream"
-		if ct, ok := f.Headers["Content-Type"]; ok {
-			contentType = ct
 		}
 
 		fileMap[fileID] = FileInfo{
 			ID:          fileID,
-			Name:        originalName,
+			Name:        extractOriginalFilename(f.Name, fileID),
 			Size:        int64(f.Size),
-			ContentType: contentType,
+			ContentType: getContentType(f.Headers),
 			Digest:      f.Digest,
 			CreatedAt:   f.ModTime,
 			Headers:     f.Headers,
@@ -287,23 +260,12 @@ func (s *Service) ListFiles(ctx context.Context) (*ListResult, error) {
 
 // DeleteFile removes a file by its ID.
 func (s *Service) DeleteFile(ctx context.Context, fileID string) error {
-	// Validate file ID format
-	if err := validateFileID(fileID); err != nil {
+	obj, err := s.findFileByID(fileID)
+	if err != nil {
 		return err
 	}
 
-	// List files to find the one with matching ID prefix
-	files, err := s.bucket.List(fsjetstream.WithPrefix(fileID + "/"))
-	if err != nil {
-		return fmt.Errorf("failed to list files: %w", err)
-	}
-
-	if len(files) == 0 {
-		return ErrFileNotFound
-	}
-
-	// Delete the file
-	if err := s.bucket.Delete(files[0].Name); err != nil {
+	if err := s.bucket.Delete(obj.Name); err != nil {
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
 
@@ -312,35 +274,10 @@ func (s *Service) DeleteFile(ctx context.Context, fileID string) error {
 
 // GetFileInfo retrieves file metadata without content.
 func (s *Service) GetFileInfo(ctx context.Context, fileID string) (*FileInfo, error) {
-	// Validate file ID format
-	if err := validateFileID(fileID); err != nil {
+	obj, err := s.findFileByID(fileID)
+	if err != nil {
 		return nil, err
 	}
 
-	// List files to find the one with matching ID prefix
-	files, err := s.bucket.List(fsjetstream.WithPrefix(fileID + "/"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to list files: %w", err)
-	}
-
-	if len(files) == 0 {
-		return nil, ErrFileNotFound
-	}
-
-	f := files[0]
-
-	contentType := "application/octet-stream"
-	if ct, ok := f.Headers["Content-Type"]; ok {
-		contentType = ct
-	}
-
-	return &FileInfo{
-		ID:          fileID,
-		Name:        extractOriginalFilename(f.Name, fileID),
-		Size:        int64(f.Size),
-		ContentType: contentType,
-		Digest:      f.Digest,
-		CreatedAt:   f.ModTime,
-		Headers:     f.Headers,
-	}, nil
+	return buildFileInfo(fileID, obj), nil
 }

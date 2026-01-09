@@ -28,7 +28,7 @@ func (a *ServiceAdapter) GetData(ctx context.Context) (*DataResponse, error) {
 		ServiceGetData,
 		json.Marshal,
 		json.Unmarshal,
-		struct{}{}, // empty request
+		struct{}{},
 		&resp,
 	)
 	if err != nil {
@@ -64,7 +64,7 @@ func (a *ServiceAdapter) GetStatus(ctx context.Context) (*StatusResponse, error)
 		ServiceGetStatus,
 		json.Marshal,
 		json.Unmarshal,
-		struct{}{}, // empty request
+		struct{}{},
 		&resp,
 	)
 	if err != nil {

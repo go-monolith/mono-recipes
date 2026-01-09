@@ -263,185 +263,132 @@ Constraints: [constraints.md](./constraints.md)
   - Success Criteria: Jobs processed asynchronously by type-specific workers, `demo.py` shows full flow
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-- [ ] 9. Create Request Validation recipe with Fiber + go-playground/validator
-  - Create new recipe directory: `projects/request-validation-demo/`
-  - Implement HTTP server using Fiber framework
-  - Integrate go-playground/validator for struct validation
-  - Create custom validators for common patterns:
-    - Email format validation
-    - Phone number format validation
-    - Password strength validation (min length, special chars)
-    - UUID format validation
-  - Implement validation middleware for automatic request body validation
-  - Create REST endpoints demonstrating validation:
-    - `POST /api/v1/users` - User registration with validation
-    - `POST /api/v1/orders` - Order creation with complex validation
-    - `PUT /api/v1/users/:id` - Partial update with conditional validation
-  - Return structured validation errors in consistent JSON format:
-    - Field name, error code, human-readable message
-    - Support for multiple errors per request
-  - Implement locale-aware error messages (en, es examples)
+- [x] 9. Create sqlc + PostgreSQL CRUD recipe with RequestReplyService
+  - Create new recipe directory: `projects/sqlc-postgres-demo/`
+  - Implement type-safe SQL with sqlc code generation (not ORM-based)
+  - Use PostgreSQL database via `docker-compose.yml` for easy setup
+  - Create domain entity (e.g., `User` with id, name, email, created_at, updated_at)
+  - Implement `ServiceProviderModule` exposing `RequestReplyService` for CRUD operations:
+    - `user.create` - Create a new user (returns created user with ID)
+    - `user.get` - Get user by ID
+    - `user.list` - List all users with pagination support
+    - `user.update` - Update user by ID
+    - `user.delete` - Delete user by ID
+  - No REST API endpoints - module only exposes services via mono's ServiceContainer
+  - Include `docker-compose.yml` with:
+    - PostgreSQL container with health check
+    - Volume for data persistence
+    - Environment variables for connection config
+  - Include `schema.sql` for table creation and `query.sql` for sqlc queries
+  - Include `sqlc.yaml` configuration file
+  - Run `sqlc generate` to produce type-safe Go code
   - Include comprehensive `README.md` explaining:
-    - Why use structured validation (security, UX)
-    - Validation at API layer vs domain layer
-    - Custom validator patterns
-    - Error message localization
-  - Create executable `demo.sh` demonstrating:
-    - Valid requests passing validation
-    - Invalid requests with detailed error responses
-    - Multiple validation errors in single response
-  - Add unit tests for validators and middleware
-  - Success Criteria: Validation errors returned with proper format, custom validators work
+    - Why use sqlc vs GORM (type-safety, performance, SQL familiarity)
+    - Trade-offs: compile-time SQL validation vs runtime ORM flexibility
+    - When to choose sqlc vs ORM approaches
+    - PostgreSQL vs SQLite considerations for production
+    - How RequestReplyService works in mono framework
+  - Create executable `demo.sh` script demonstrating:
+    - Start PostgreSQL via `docker compose up -d`
+    - Wait for database ready using health check
+    - Send request messages via `nats request` for CRUD operations
+    - JSON request/response payloads for each operation
+    - Verify data directly via `psql` commands showing table contents
+    - Examples: create user, list users, get by ID, update, delete, final psql verification
+  - Add unit tests for repository layer with test database
+  - Use `code-simplifier` subagent to simplify and refine the code for clarity and maintainability
+  - Re-run all unit tests after code simplification to ensure they still pass
+  - Success Criteria: `docker compose up -d && go run .` starts app, `demo.sh` performs full CRUD via `nats` CLI, `psql` verification shows correct data, all unit tests pass after code simplification
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-- [ ] 10. Create Health Checks & Metrics recipe with Fiber + Prometheus
-  - Create new recipe directory: `projects/health-metrics-demo/`
-  - Implement HTTP server using Fiber framework
-  - Create comprehensive health check endpoints:
-    - `GET /health/live` - Liveness probe (is app running?)
-    - `GET /health/ready` - Readiness probe (can app serve traffic?)
-    - `GET /health/startup` - Startup probe (is app fully initialized?)
-  - Implement health check dependencies:
-    - Database connectivity check (SQLite with GORM)
-    - NATS connectivity check
-    - Custom health check registration via module interface
-  - Integrate Prometheus metrics collection:
-    - HTTP request duration histogram
-    - Request count by endpoint and status code
-    - Active connections gauge
-    - Custom business metrics (orders processed, cache hits)
-  - Expose Prometheus metrics endpoint (`GET /metrics`)
-  - Implement `HealthCheckableModule` interface in example modules
-  - Include `docker-compose.yml` for Prometheus + Grafana containers
+- [x] 10. Create Python NATS Client integration recipe with multi-service Mono application
+  - Create new recipe directory: `projects/python-nats-client-demo/`
+  - Demonstrate interoperability between Python clients and Go-based Mono applications via NATS
+  - Implement Mono application with 3 distinct service patterns:
+    - **RequestReplyService** (`math.calculate`): Synchronous math calculation operations
+      - Operations: add, subtract, multiply, divide, power, sqrt
+      - Request: `{"operation": "add", "a": 10, "b": 5}`
+      - Response: `{"result": 15, "operation": "add"}`
+    - **QueueGroupService** (`email.send`): Simulate sending email to users (fire-and-forget)
+      - Queue group ensures only one worker processes each email
+      - Request: `{"to": "user@example.com", "subject": "Welcome", "body": "Hello!"}`
+      - Simulates email sending with random delay and success/failure logging
+    - **StreamConsumerService** (`payment.process`): Simulate subscription payment processing
+      - Durable stream consumer for reliable payment processing
+      - Message: `{"user_id": "user123", "subscription_id": "sub456", "amount": 9.99}`
+      - Simulates payment gateway call with idempotency check
+      - Acknowledges message only after successful processing
+  - Create Python client using `nats-py` library (https://github.com/nats-io/nats.py):
+    - `client.py` - Main client module with async NATS connection
+    - `math_client.py` - RequestReply client for math operations
+    - `email_client.py` - QueueGroup publisher for email jobs
+    - `payment_client.py` - JetStream publisher for payment events
+  - Include `requirements.txt` with `nats-py` and other dependencies
   - Include comprehensive `README.md` explaining:
-    - Why use health checks (Kubernetes, load balancers)
-    - Liveness vs Readiness vs Startup probes
-    - Prometheus metrics best practices
-    - Grafana dashboard setup guide
-  - Create executable `demo.sh` demonstrating:
-    - Health check responses in different states
-    - Prometheus metrics scraping
-    - Sample Grafana dashboard import
-  - Add unit tests for health check handlers
-  - Success Criteria: Health probes work correctly, Prometheus can scrape metrics, Grafana displays dashboard
+    - Why use Python NATS client for polyglot microservices
+    - RequestReplyService vs QueueGroupService vs StreamConsumerService patterns
+    - When to use each service pattern (sync vs async, at-most-once vs at-least-once)
+    - JetStream durability and acknowledgment semantics
+    - Trade-offs of language interoperability via messaging
+  - Create executable `demo.py` demonstrating:
+    - Connect Python client to Mono application's embedded NATS
+    - Call math operations via RequestReply and display results
+    - Send multiple email jobs via QueueGroup and observe load balancing
+    - Publish payment events to JetStream stream and verify processing
+    - Color-coded output showing request/response flow
+    - Command-line arguments for different demo scenarios
+  - Add unit tests for Go service handlers
+  - Add Python tests for client modules using pytest
+  - Use `code-simplifier` subagent to simplify and refine the code for clarity and maintainability
+  - Re-run all unit tests (Go and Python) after code simplification to ensure they still pass
+  - Success Criteria: `go run .` starts Mono app, `python demo.py` demonstrates all 3 service patterns, messages flow correctly between Python and Go
+  - _Dependencies: 8, 9_
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-<!-- New tasks added on 2026-01-04 - Milestone 5: Advanced Patterns -->
-
-- [ ] 11. Create CRUD API Generator recipe with Fiber + GORM + Code Generation
-  - Create new recipe directory: `projects/crud-generator-demo/`
-  - Implement code generation pattern for CRUD endpoints from model definitions
-  - Create `Product`, `Category`, `Order` entities with GORM
-  - Generate REST endpoints automatically using reflection:
-    - `GET /api/v1/{entity}` - List with pagination
-    - `GET /api/v1/{entity}/:id` - Get by ID
-    - `POST /api/v1/{entity}` - Create
-    - `PUT /api/v1/{entity}/:id` - Update
-    - `DELETE /api/v1/{entity}/:id` - Delete
-  - Implement generic repository pattern with type constraints
-  - Add filtering, sorting, and pagination support
+- [ ] 11. Create Node.js NATS Client integration recipe with fs-jetstream file storage
+  - Create new recipe directory: `projects/node-nats-client-demo/`
+  - Demonstrate interoperability between Node.js clients and Go-based Mono applications via NATS
+  - Implement Mono application using builtin `fs-jetstream` plugin with 2 services:
+    - **RequestReplyService** (`file.save`): Save JSON file to "user-setting" bucket
+      - Request: `{"filename": "user123.json", "content": {"theme": "dark", "lang": "en"}}`
+      - Response: `{"success": true, "filename": "user123.json", "size": 42}`
+      - Uses `fs-jetstream` plugin's `FileStoragePort` to store file in JetStream object store
+    - **QueueGroupService** (`file.archive`): Archive existing JSON file (zip and delete original)
+      - Request: `{"filename": "user123.json"}`
+      - Reads JSON file from "user-setting" bucket
+      - Compresses content to ZIP format (e.g., `user123.zip`)
+      - Saves ZIP file to same bucket
+      - Deletes original JSON file
+      - Fire-and-forget with logging for success/failure
+  - Mono application uses `UsePluginModule` interface to receive `fs-jetstream` plugin
+  - Create Node.js client using `nats.js` library (https://github.com/nats-io/nats.js):
+    - `client.js` - Main NATS connection with async/await
+    - `file-service.js` - RequestReply client for saving JSON files
+    - `archive-service.js` - QueueGroup publisher for archive jobs
+    - `watcher.js` - JetStream object store watcher for bucket changes
+  - Include `package.json` with `nats` and other dependencies
+  - Implement **watch capability** in Node.js client:
+    - Subscribe to changes in "user-setting" bucket using JetStream object store watch
+    - Detect file creation events (both JSON and ZIP files)
+    - Print changes to stdout with timestamps and file metadata
+    - Support filtering by file extension (`.json`, `.zip`)
   - Include comprehensive `README.md` explaining:
-    - Why use code generation for CRUD (DRY, consistency)
-    - Go generics for type-safe repositories
-    - Trade-offs vs hand-written endpoints
-  - Create executable `demo.sh` demonstrating CRUD operations on multiple entities
-  - Add unit tests for generic repository
-  - Success Criteria: Multiple entities share same CRUD logic, `demo.sh` works with all entities
-  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
-
-- [ ] 12. Create Graceful Degradation recipe with Circuit Breaker pattern
-  - Create new recipe directory: `projects/circuit-breaker-demo/`
-  - Implement circuit breaker pattern using `sony/gobreaker` library
-  - Create API module that calls external service (simulated)
-  - Implement three circuit states: Closed, Open, Half-Open
-  - Add fallback responses when circuit is open
-  - Create REST endpoints demonstrating circuit behavior:
-    - `GET /api/v1/external-data` - Calls external service with circuit breaker
-    - `GET /api/v1/circuit-status` - Shows current circuit state
-  - Implement `ServiceProviderModule` wrapping external calls
-  - Add configurable thresholds (failure count, timeout, recovery time)
-  - Include comprehensive `README.md` explaining:
-    - Why use circuit breaker (resilience, cascading failures)
-    - Circuit breaker states and transitions
-    - When to use vs retry patterns
-  - Create executable `demo.sh` demonstrating:
-    - Normal operation (circuit closed)
-    - Failure threshold reached (circuit opens)
-    - Recovery after timeout (half-open → closed)
-  - Add unit tests for circuit breaker wrapper
-  - Success Criteria: Circuit opens on failures, fallback responses work, recovery demonstrated
-  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
-
-- [ ] 13. Create Retry with Exponential Backoff recipe
-  - Create new recipe directory: `projects/retry-backoff-demo/`
-  - Implement retry pattern with exponential backoff and jitter
-  - Create configurable retry policy:
-    - Max retries, initial delay, max delay, backoff multiplier
-    - Jitter to prevent thundering herd
-  - Implement `ServiceProviderModule` with retry-wrapped service calls
-  - Add context cancellation support for timeouts
-  - Create REST endpoints demonstrating retry behavior:
-    - `POST /api/v1/unreliable-operation` - Operation that may fail
-    - `GET /api/v1/retry-stats` - Shows retry statistics
-  - Log retry attempts with timing information
-  - Include comprehensive `README.md` explaining:
-    - Why use exponential backoff (rate limiting, server recovery)
-    - Jitter importance for distributed systems
-    - When to retry vs fail fast
-  - Create executable `demo.sh` demonstrating:
-    - Successful retry after transient failures
-    - Max retries exceeded scenario
-    - Backoff timing visualization
-  - Add unit tests for retry logic
-  - Success Criteria: Retries work with backoff, jitter prevents sync, timeouts respected
-  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
-
-- [ ] 14. Create Pagination & Cursor-based API recipe with Fiber + GORM
-  - Create new recipe directory: `projects/pagination-demo/`
-  - Implement both offset-based and cursor-based pagination
-  - Create `Article` entity with GORM (1000+ seeded records)
-  - Implement pagination endpoints:
-    - `GET /api/v1/articles?page=1&limit=20` - Offset pagination
-    - `GET /api/v1/articles?cursor=abc&limit=20` - Cursor pagination
-  - Return pagination metadata (total, hasNext, hasPrev, cursors)
-  - Add sorting support with multiple fields
-  - Implement efficient database queries (avoid N+1, use indexes)
-  - Include comprehensive `README.md` explaining:
-    - Offset vs cursor pagination trade-offs
-    - When to use each approach
-    - Database indexing for performance
-    - API design best practices for pagination
-  - Create executable `demo.sh` demonstrating:
-    - Offset pagination through pages
-    - Cursor pagination forward/backward
-    - Performance comparison with large datasets
-  - Add unit tests for pagination logic
-  - Success Criteria: Both pagination types work, large dataset handles efficiently
-  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
-
-- [ ] 15. Create Soft Delete & Audit Trail recipe with GORM hooks
-  - Create new recipe directory: `projects/soft-delete-audit-demo/`
-  - Implement soft delete pattern using GORM's `DeletedAt` field
-  - Create audit trail logging for all entity changes
-  - Implement `Document` entity with full audit:
-    - `created_at`, `created_by`
-    - `updated_at`, `updated_by`
-    - `deleted_at`, `deleted_by`
-  - Create `AuditLog` entity storing change history:
-    - Entity type, entity ID, action, old/new values, user, timestamp
-  - Use GORM hooks (`BeforeCreate`, `BeforeUpdate`, `BeforeDelete`)
-  - Implement REST endpoints:
-    - Standard CRUD for documents
-    - `GET /api/v1/documents/:id/history` - View audit trail
-    - `POST /api/v1/documents/:id/restore` - Restore soft-deleted
-  - Include comprehensive `README.md` explaining:
-    - Why use soft delete (data recovery, compliance)
-    - Audit trail for compliance and debugging
-    - GORM hooks for cross-cutting concerns
-  - Create executable `demo.sh` demonstrating:
-    - CRUD operations with audit logging
-    - Soft delete and restore
-    - Viewing change history
-  - Add unit tests for audit hooks
-  - Success Criteria: Soft delete works, audit trail captures all changes, restore works
+    - Why use Node.js NATS client for polyglot microservices
+    - How `fs-jetstream` plugin provides file storage via JetStream object store
+    - RequestReplyService vs QueueGroupService patterns for file operations
+    - JetStream object store watch capability for real-time notifications
+    - Use cases: user settings sync, config distribution, file processing pipelines
+  - Create executable `demo.js` demonstrating:
+    - Connect Node.js client to Mono application's embedded NATS
+    - Start watcher to subscribe to bucket changes (runs in background)
+    - Save multiple JSON files via RequestReply and observe watcher output
+    - Archive files via QueueGroup and observe ZIP creation + JSON deletion in watcher
+    - Color-coded console output showing request/response and watch events
+    - Graceful shutdown with Ctrl+C
+  - Add unit tests for Go service handlers
+  - Add Node.js tests using Jest or Vitest
+  - Use `code-simplifier` subagent to simplify and refine the code for clarity and maintainability
+  - Re-run all unit tests (Go and Node.js) after code simplification to ensure they still pass
+  - Success Criteria: `go run .` starts Mono app, `node demo.js` saves files, archives them, and watcher prints all bucket changes in real-time
+  - _Dependencies: 3, 10_
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_

@@ -1,0 +1,4 @@
+nats-py>=2.7.0
+pytest>=7.0.0
+pytest-asyncio>=0.23.0
+colorama>=0.4.6

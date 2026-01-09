@@ -38,7 +38,7 @@ No specific performance targets for this upgrade. Accept the performance charact
 
 - Each commit should represent a complete, working state (all tests pass)
 - If a module upgrade reveals bugs or issues, fix them before proceeding to the next module
-
+- Never create task that update multiple projects at once; each project must be updated in isolated tasks
 ---
 
 *These constraints are part of the Goal Driven Development (GDD) process.*

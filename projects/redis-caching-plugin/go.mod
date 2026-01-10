@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/gelmium/graceful-shutdown v0.0.11
-	github.com/go-monolith/mono v0.0.3
+	github.com/go-monolith/mono v0.0.4
 	github.com/gofiber/fiber/v2 v2.52.10
 	github.com/gofiber/storage/redis/v3 v3.4.2
 	golang.org/x/sync v0.18.0

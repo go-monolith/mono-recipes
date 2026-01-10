@@ -1,0 +1,32 @@
+{
+  "name": "node-nats-client-demo",
+  "version": "1.0.0",
+  "description": "Node.js NATS Client Demo with Go Mono Application",
+  "type": "module",
+  "main": "client/index.js",
+  "scripts": {
+    "demo": "node demo.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "keywords": [
+    "nats",
+    "jetstream",
+    "nodejs",
+    "go",
+    "mono",
+    "microservices"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "nats": "^2.28.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@jest/globals": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "transform": {}
+  }
+}

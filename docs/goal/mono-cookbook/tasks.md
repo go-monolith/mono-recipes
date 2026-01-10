@@ -345,7 +345,7 @@ Constraints: [constraints.md](./constraints.md)
   - _Dependencies: 8, 9_
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
 
-- [ ] 11. Create Node.js NATS Client integration recipe with fs-jetstream file storage
+- [x] 11. Create Node.js NATS Client integration recipe with fs-jetstream file storage
   - Create new recipe directory: `projects/node-nats-client-demo/`
   - Demonstrate interoperability between Node.js clients and Go-based Mono applications via NATS
   - Implement Mono application using builtin `fs-jetstream` plugin with 2 services:

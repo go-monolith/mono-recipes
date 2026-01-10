@@ -3,7 +3,7 @@ module github.com/example/rate-limiting-middleware
 go 1.25
 
 require (
-	github.com/go-monolith/mono v0.0.3
+	github.com/go-monolith/mono v0.0.4
 	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.17.2
 )

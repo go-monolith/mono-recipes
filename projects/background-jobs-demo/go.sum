@@ -4,8 +4,8 @@ github.com/antithesishq/antithesis-sdk-go v0.5.0 h1:cudCFF83pDDANcXFzkQPUHHedfnn
 github.com/antithesishq/antithesis-sdk-go v0.5.0/go.mod h1:IUpT2DPAKh6i/YhSbt6Gl3v2yvUZjmKncl7U91fup7E=
 github.com/gelmium/graceful-shutdown v0.0.11 h1:jZCnI6PU9chqWiO1v58Y7dRWz1i06a86uOuAGn/B5Fo=
 github.com/gelmium/graceful-shutdown v0.0.11/go.mod h1:Mrje9A4VYcCOkbiF5KZ4o5gCd2OH3fGkwGIzWvDnMsI=
-github.com/go-monolith/mono v0.0.3 h1:SL8X5UBIaSCZGRNz1pLupXbWzabXOSeDBSIx8WG20AI=
-github.com/go-monolith/mono v0.0.3/go.mod h1:zlX2wZPmETw/SVz/IkHCDdiii3eMlPg0kZNOKtqsdZw=
+github.com/go-monolith/mono v0.0.4 h1:NDOrySL2dG7lo2PDZFV1uHfxcl+daLpfVsbZNhZHaaM=
+github.com/go-monolith/mono v0.0.4/go.mod h1:zlX2wZPmETw/SVz/IkHCDdiii3eMlPg0kZNOKtqsdZw=
 github.com/gofiber/fiber/v2 v2.52.10 h1:jRHROi2BuNti6NYXmZ6gbNSfT3zj/8c0xy94GOU5elY=
 github.com/gofiber/fiber/v2 v2.52.10/go.mod h1:YEcBbO/FB+5M1IZNBP9FO3J9281zgPAreiI1oqg8nDw=
 github.com/google/go-tpm v0.9.8 h1:slArAR9Ft+1ybZu0lBwpSmpwhRXaa85hWtMinMyRAWo=

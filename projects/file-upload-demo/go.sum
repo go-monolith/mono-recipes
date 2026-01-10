@@ -17,8 +17,8 @@ github.com/gin-contrib/sse v0.1.0 h1:Y/yl/+YNO8GZSjAhjMsSuLt29uWRFHdHYUb5lYOV9qE
 github.com/gin-contrib/sse v0.1.0/go.mod h1:RHrZQHXnP2xjPF+u1gW/2HnVO7nvIa9PG3Gm+fLHvGI=
 github.com/gin-gonic/gin v1.10.1 h1:T0ujvqyCSqRopADpgPgiTT63DUQVSfojyME59Ei63pQ=
 github.com/gin-gonic/gin v1.10.1/go.mod h1:4PMNQiOhvDRa013RKVbsiNwoyezlm2rm0uX/T7kzp5Y=
-github.com/go-monolith/mono v0.0.3 h1:SL8X5UBIaSCZGRNz1pLupXbWzabXOSeDBSIx8WG20AI=
-github.com/go-monolith/mono v0.0.3/go.mod h1:zlX2wZPmETw/SVz/IkHCDdiii3eMlPg0kZNOKtqsdZw=
+github.com/go-monolith/mono v0.0.4 h1:NDOrySL2dG7lo2PDZFV1uHfxcl+daLpfVsbZNhZHaaM=
+github.com/go-monolith/mono v0.0.4/go.mod h1:zlX2wZPmETw/SVz/IkHCDdiii3eMlPg0kZNOKtqsdZw=
 github.com/go-playground/assert/v2 v2.2.0 h1:JvknZsQTYeFEAhQwI4qEt9cyV5ONwRHC+lYKSsYSR8s=
 github.com/go-playground/assert/v2 v2.2.0/go.mod h1:VDjEfimB/XKnb+ZQfWdccd7VUvScMdVu0Titje2rxJ4=
 github.com/go-playground/locales v0.14.1 h1:EWaQ/wswjilfKLTECiXz7Rh+3BjFhfDFKv/oXslEjJA=

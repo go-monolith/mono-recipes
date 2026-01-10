@@ -17,7 +17,7 @@ Target Version: v0.0.4 (released January 10, 2026)
 
 ## Task List
 
-- [ ] 1. Upgrade rate-limiting-middleware to mono v0.0.4
+- [x] 1. Upgrade rate-limiting-middleware to mono v0.0.4
 
   - Update `projects/rate-limiting-middleware/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
   - Run `go mod tidy` to update dependencies
@@ -30,7 +30,7 @@ Target Version: v0.0.4 (released January 10, 2026)
   - _Estimated Complexity:_ S (Small)
   - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
 
-- [ ] 2. Upgrade jwt-auth-demo to mono v0.0.4
+- [x] 2. Upgrade jwt-auth-demo to mono v0.0.4
 
   - Update `projects/jwt-auth-demo/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
   - Run `go mod tidy` to update dependencies
@@ -44,7 +44,7 @@ Target Version: v0.0.4 (released January 10, 2026)
   - _Estimated Complexity:_ S (Small)
   - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
 
-- [ ] 3. Upgrade background-jobs-demo to mono v0.0.4
+- [x] 3. Upgrade background-jobs-demo to mono v0.0.4
 
   - Update `projects/background-jobs-demo/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
   - Run `go mod tidy` to update dependencies
@@ -58,7 +58,7 @@ Target Version: v0.0.4 (released January 10, 2026)
   - _Estimated Complexity:_ S (Small)
   - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
 
-- [ ] 4. Upgrade redis-caching-plugin to mono v0.0.4
+- [x] 4. Upgrade redis-caching-plugin to mono v0.0.4
 
   - Update `projects/redis-caching-plugin/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
   - Run `go mod tidy` to update dependencies
@@ -72,7 +72,7 @@ Target Version: v0.0.4 (released January 10, 2026)
   - _Estimated Complexity:_ S (Small)
   - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
 
-- [ ] 5. Upgrade url-shortener-demo to mono v0.0.4
+- [x] 5. Upgrade url-shortener-demo to mono v0.0.4
 
   - Update `projects/url-shortener-demo/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
   - Run `go mod tidy` to update dependencies
@@ -87,13 +87,80 @@ Target Version: v0.0.4 (released January 10, 2026)
   - _Estimated Complexity:_ S (Small)
   - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
 
+<!-- New tasks added on 2026-01-10 - Batch 2: Next 5 projects -->
+
+- [ ] 6. Upgrade file-upload-demo to mono v0.0.4
+
+  - Update `projects/file-upload-demo/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
+  - Run `go mod tidy` to update dependencies
+  - Build the project: `go build -o ./bin/file-upload-demo .`
+  - Run all existing tests: `go test ./...` (2 test files: handlers_test.go, service_test.go)
+  - Verify file upload service patterns work correctly with v0.0.4
+  - Verify no deprecation warnings or compiler errors
+  - Commit changes after all tests pass: "chore: upgrade file-upload-demo to mono v0.0.4"
+  - _Success Criteria:_ All tests pass, file upload handlers work correctly, binary builds
+  - _Estimated Complexity:_ S (Small)
+  - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
+
+- [ ] 7. Upgrade gorm-sqlite-demo to mono v0.0.4
+
+  - Update `projects/gorm-sqlite-demo/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
+  - Run `go mod tidy` to update dependencies
+  - Build the project: `go build -o ./bin/gorm-sqlite-demo .`
+  - Run all existing tests: `go test ./...` (1 test file: repository_test.go)
+  - Verify GORM integration and repository patterns work with v0.0.4
+  - Verify no deprecation warnings or compiler errors
+  - Commit changes after all tests pass: "chore: upgrade gorm-sqlite-demo to mono v0.0.4"
+  - _Success Criteria:_ All tests pass, GORM repository works correctly, binary builds
+  - _Estimated Complexity:_ S (Small)
+  - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
+
+- [ ] 8. Upgrade graceful-shutdown-demo to mono v0.0.4
+
+  - Update `projects/graceful-shutdown-demo/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
+  - Run `go mod tidy` to update dependencies
+  - Build the project: `go build -o ./bin/graceful-shutdown-demo .`
+  - Note: This project has no test files - verify manually that it compiles and builds
+  - Verify graceful shutdown patterns and signal handling work with v0.0.4
+  - Verify no deprecation warnings or compiler errors
+  - Commit changes after build succeeds: "chore: upgrade graceful-shutdown-demo to mono v0.0.4"
+  - _Success Criteria:_ Binary builds successfully, no compilation errors
+  - _Estimated Complexity:_ S (Small)
+  - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
+
+- [ ] 9. Upgrade hexagonal-architecture to mono v0.0.4
+
+  - Update `projects/hexagonal-architecture/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
+  - Run `go mod tidy` to update dependencies
+  - Build the project: `go build -o ./bin/hexagonal-architecture .`
+  - Note: This project has no test files - verify manually that it compiles and builds
+  - Verify hexagonal architecture patterns (ports/adapters) work with v0.0.4
+  - Verify no deprecation warnings or compiler errors
+  - Commit changes after build succeeds: "chore: upgrade hexagonal-architecture to mono v0.0.4"
+  - _Success Criteria:_ Binary builds successfully, no compilation errors
+  - _Estimated Complexity:_ S (Small)
+  - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
+
+- [ ] 10. Upgrade websocket-chat-demo to mono v0.0.4
+
+  - Update `projects/websocket-chat-demo/go.mod` from `github.com/go-monolith/mono v0.0.3` to `v0.0.4`
+  - Run `go mod tidy` to update dependencies
+  - Build the project: `go build -o ./bin/websocket-chat-demo .`
+  - Run all existing tests: `go test ./...` (1 test file: types_test.go)
+  - Verify WebSocket service and chat patterns work with v0.0.4
+  - Verify no deprecation warnings or compiler errors
+  - Commit changes after all tests pass: "chore: upgrade websocket-chat-demo to mono v0.0.4"
+  - _Success Criteria:_ All tests pass, WebSocket handlers work correctly, binary builds
+  - _Estimated Complexity:_ S (Small)
+  - _Addresses Success Criterion:_ "All modules use the latest compatible mono framework version"
+
 ---
 
-**Progress:** 0/5 tasks completed (0%)
+**Progress:** 5/10 tasks completed (50%)
 
 **Notes:**
 - All tasks follow the "Definition of Safe Change" from constraints.md
 - Each task updates one project independently as required by constraints
-- Test coverage validated: all selected projects have passing tests
+- Test coverage validated: 3 of 5 projects in this batch have tests, 2 have no tests (graceful-shutdown-demo, hexagonal-architecture)
 - No "Don't Touch" areas violated (no modules with failing tests selected)
-- Remaining 8 projects will be upgraded in subsequent task batches after these 5 complete successfully
+- Remaining 4 projects (node-nats-client-demo, python-nats-client-demo, sqlc-postgres-demo) will be upgraded in subsequent task batches

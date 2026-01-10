@@ -3,7 +3,7 @@ module github.com/example/url-shortener-demo
 go 1.25
 
 require (
-	github.com/go-monolith/mono v0.0.3
+	github.com/go-monolith/mono v0.0.4
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/jaevor/go-nanoid v1.4.0
 )

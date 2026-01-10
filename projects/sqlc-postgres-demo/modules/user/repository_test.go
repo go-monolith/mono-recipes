@@ -49,7 +49,7 @@ func TestRepository_Create(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	repo := NewRepository(pool)
+	repo := NewPostgresRepository(pool)
 	ctx := context.Background()
 
 	user, err := repo.Create(ctx, "Test User", "test-create@example.com")
@@ -72,7 +72,7 @@ func TestRepository_Create_DuplicateEmail(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	repo := NewRepository(pool)
+	repo := NewPostgresRepository(pool)
 	ctx := context.Background()
 
 	// Create first user
@@ -92,7 +92,7 @@ func TestRepository_FindByID(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	repo := NewRepository(pool)
+	repo := NewPostgresRepository(pool)
 	ctx := context.Background()
 
 	// Create a test user
@@ -126,7 +126,7 @@ func TestRepository_FindAll(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	repo := NewRepository(pool)
+	repo := NewPostgresRepository(pool)
 	ctx := context.Background()
 
 	// Create test users
@@ -162,7 +162,7 @@ func TestRepository_Update(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	repo := NewRepository(pool)
+	repo := NewPostgresRepository(pool)
 	ctx := context.Background()
 
 	// Create a test user
@@ -211,7 +211,7 @@ func TestRepository_Delete(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	repo := NewRepository(pool)
+	repo := NewPostgresRepository(pool)
 	ctx := context.Background()
 
 	// Create a test user
@@ -234,12 +234,12 @@ func TestRepository_Delete(t *testing.T) {
 		}
 	})
 
-	t.Run("delete non-existent (no error)", func(t *testing.T) {
+	t.Run("delete non-existent returns error", func(t *testing.T) {
 		nonExistentID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
 		err := repo.Delete(ctx, nonExistentID)
-		// Delete should not return error for non-existent user
-		if err != nil {
-			t.Errorf("unexpected error for delete non-existent: %v", err)
+		// Delete should return ErrNotFound for non-existent user
+		if err != ErrNotFound {
+			t.Errorf("expected ErrNotFound, got %v", err)
 		}
 	})
 }

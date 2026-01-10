@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/example/sqlc-postgres-demo/db/generated"
+	"github.com/example/sqlc-postgres-demo/modules/user/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,20 +17,42 @@ var ErrNotFound = errors.New("user not found")
 // ErrDuplicateEmail is returned when email already exists.
 var ErrDuplicateEmail = errors.New("email already exists")
 
-// Repository provides access to user storage using sqlc.
-type Repository struct {
+// UserRepository defines the interface for user data access.
+// This abstraction follows the Dependency Inversion Principle (DIP),
+// allowing the service layer to depend on an abstraction rather than a concrete implementation.
+type UserRepository interface {
+	// Create saves a new user to the storage.
+	Create(ctx context.Context, name, email string) (*generated.User, error)
+	// FindByID retrieves a user by ID.
+	FindByID(ctx context.Context, id uuid.UUID) (*generated.User, error)
+	// FindAll retrieves paginated users.
+	FindAll(ctx context.Context, limit, offset int32) ([]generated.User, error)
+	// Count returns the total number of users.
+	Count(ctx context.Context) (int64, error)
+	// Update updates an existing user.
+	Update(ctx context.Context, id uuid.UUID, name, email *string) (*generated.User, error)
+	// Delete removes a user by ID.
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// PostgresRepository provides PostgreSQL-based user storage using sqlc.
+// It implements the UserRepository interface.
+type PostgresRepository struct {
 	queries *generated.Queries
 }
 
-// NewRepository creates a new user repository.
-func NewRepository(db generated.DBTX) *Repository {
-	return &Repository{
+// Compile-time interface check.
+var _ UserRepository = (*PostgresRepository)(nil)
+
+// NewPostgresRepository creates a new PostgreSQL user repository.
+func NewPostgresRepository(db generated.DBTX) *PostgresRepository {
+	return &PostgresRepository{
 		queries: generated.New(db),
 	}
 }
 
 // Create saves a new user to the database.
-func (r *Repository) Create(ctx context.Context, name, email string) (*generated.User, error) {
+func (r *PostgresRepository) Create(ctx context.Context, name, email string) (*generated.User, error) {
 	user, err := r.queries.CreateUser(ctx, generated.CreateUserParams{
 		Name:  name,
 		Email: email,
@@ -45,7 +67,7 @@ func (r *Repository) Create(ctx context.Context, name, email string) (*generated
 }
 
 // FindByID retrieves a user by ID.
-func (r *Repository) FindByID(ctx context.Context, id uuid.UUID) (*generated.User, error) {
+func (r *PostgresRepository) FindByID(ctx context.Context, id uuid.UUID) (*generated.User, error) {
 	user, err := r.queries.GetUser(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -57,7 +79,7 @@ func (r *Repository) FindByID(ctx context.Context, id uuid.UUID) (*generated.Use
 }
 
 // FindAll retrieves paginated users.
-func (r *Repository) FindAll(ctx context.Context, limit, offset int32) ([]generated.User, error) {
+func (r *PostgresRepository) FindAll(ctx context.Context, limit, offset int32) ([]generated.User, error) {
 	return r.queries.ListUsers(ctx, generated.ListUsersParams{
 		Limit:  limit,
 		Offset: offset,
@@ -65,12 +87,12 @@ func (r *Repository) FindAll(ctx context.Context, limit, offset int32) ([]genera
 }
 
 // Count returns the total number of users.
-func (r *Repository) Count(ctx context.Context) (int64, error) {
+func (r *PostgresRepository) Count(ctx context.Context) (int64, error) {
 	return r.queries.CountUsers(ctx)
 }
 
 // Update updates an existing user.
-func (r *Repository) Update(ctx context.Context, id uuid.UUID, name, email *string) (*generated.User, error) {
+func (r *PostgresRepository) Update(ctx context.Context, id uuid.UUID, name, email *string) (*generated.User, error) {
 	params := generated.UpdateUserParams{
 		ID: pgtype.UUID{Bytes: id, Valid: true},
 	}
@@ -95,7 +117,13 @@ func (r *Repository) Update(ctx context.Context, id uuid.UUID, name, email *stri
 }
 
 // Delete removes a user by ID.
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+// Returns ErrNotFound if the user does not exist.
+func (r *PostgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	// Check existence first to return ErrNotFound for non-existent users
+	_, err := r.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
 	return r.queries.DeleteUser(ctx, pgtype.UUID{Bytes: id, Valid: true})
 }
 

@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/gelmium/graceful-shutdown v0.0.11
-	github.com/go-monolith/mono v0.0.3
+	github.com/go-monolith/mono v0.0.4
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
 )

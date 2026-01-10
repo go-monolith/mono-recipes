@@ -2,8 +2,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/gelmium/graceful-shutdown v0.0.11 h1:jZCnI6PU9chqWiO1v58Y7dRWz1i06a86uOuAGn/B5Fo=
 github.com/gelmium/graceful-shutdown v0.0.11/go.mod h1:Mrje9A4VYcCOkbiF5KZ4o5gCd2OH3fGkwGIzWvDnMsI=
-github.com/go-monolith/mono v0.0.3 h1:SL8X5UBIaSCZGRNz1pLupXbWzabXOSeDBSIx8WG20AI=
-github.com/go-monolith/mono v0.0.3/go.mod h1:zlX2wZPmETw/SVz/IkHCDdiii3eMlPg0kZNOKtqsdZw=
+github.com/go-monolith/mono v0.0.4 h1:NDOrySL2dG7lo2PDZFV1uHfxcl+daLpfVsbZNhZHaaM=
+github.com/go-monolith/mono v0.0.4/go.mod h1:zlX2wZPmETw/SVz/IkHCDdiii3eMlPg0kZNOKtqsdZw=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/klauspost/compress v1.17.11 h1:In6xLpyWOi1+C7tXUUWv2ot1QvBjxevKAaI6IXrJmUc=

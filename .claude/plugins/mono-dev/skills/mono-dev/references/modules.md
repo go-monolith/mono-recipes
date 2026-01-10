@@ -332,7 +332,7 @@ Always use compile-time interface checks to catch implementation errors early:
 ```go
 // Compile-time interface checks.
 var _ mono.Module = (*MyModule)(nil)
-// or 
+// or
 var _ mono.EventBusAwareModule = (*MyModule)(nil)
 // or
 var _ mono.ServiceProviderModule = (*MyModule)(nil)

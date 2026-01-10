@@ -1,0 +1,12 @@
+{
+  "name": "mono-recipes",
+  "owner": {
+    "name": "Mono Development Team"
+  },
+  "plugins": [
+    {
+      "name": "Mono Dev",
+      "source": "./.claude/plugins/mono-dev"
+    }
+  ]
+}

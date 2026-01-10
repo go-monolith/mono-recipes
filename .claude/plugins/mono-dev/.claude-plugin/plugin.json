@@ -1,0 +1,21 @@
+{
+  "name": "mono-dev",
+  "version": "0.4.0",
+  "description": "Best practices for developing modular monolith applications with the go-monolith/mono framework",
+  "author": {
+    "name": "go-monolith",
+    "url": "https://github.com/go-monolith"
+  },
+  "homepage": "https://gelmium.gitbook.io/monolith-framework",
+  "repository": "https://github.com/go-monolith/mono-recipes",
+  "license": "MIT",
+  "keywords": [
+    "mono",
+    "monolith",
+    "go-monolith",
+    "nats",
+    "modular-monolith",
+    "microservices",
+    "event-driven"
+  ]
+}

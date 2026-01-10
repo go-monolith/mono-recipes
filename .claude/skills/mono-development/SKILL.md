@@ -1,7 +1,7 @@
 ---
 name: mono-development
-description: This skill should be used when the user asks to "create a mono application", "build a mono module", "implement MonoApplication", "add a new module", "setup inter-module communication", "create an event emitter", "register services", "add event consumers", "create a plugin", "use kv-jetstream", "use fs-jetstream", "add file storage", "add key-value storage", "create middleware", "add access logging", "add audit logging", "add request id tracking", or mentions "mono-framework", "MonoApplication", "ServiceContainer", "ChannelService", "RequestReplyService", "QueueGroupService", "StreamConsumerService", "EventBus", "EventRegistry", "EventEmitter", "EventConsumer", "EventStreamConsumer", "PluginModule", "UsePluginModule", "MiddlewareModule", "OnServiceRegistration", "OnModuleLifecycle", "OnOutgoingMessage", "kv-jetstream", "fs-jetstream", "KVStoragePort", "FileStoragePort", "accesslog", "audit", "requestid". Provides best practices for developing modular monolith applications with the go-monolith/mono framework.
-version: 0.3.0
+description: This skill should be used when the user asks to "create a Mono application", "add a new Mono module", "create a Mono plugin", "create a Mono middleware", "use kv-jetstream plugin", "use fs-jetstream" plugin, "create Python client to connect to Mono app", "create Node.js client to connect to Mono app", "add polyglot client for Mono app", "add background jobs in Mono app", "add queue-group workers", or mentions "mono framework", "MonoApplication", "ServiceContainer", "ChannelService", "RequestReplyService", "QueueGroupService", "StreamConsumerService", "EventBus", "EventRegistry", "EventEmitter", "EventConsumer", "EventStreamConsumer", "PluginModule", "UsePluginModule", "MiddlewareModule", "OnServiceRegistration", "OnModuleLifecycle", "OnOutgoingMessage", "kv-jetstream", "fs-jetstream", "KVStoragePort", "FileStoragePort", "QGHP", "nats.py", "nats.js". Provides best practices for developing modular monolith applications with the go-monolith/mono framework.
+version: 0.4.0
 ---
 
 # Mono Framework Development
@@ -25,15 +25,27 @@ The Mono Framework enables modular monolith architecture with embedded NATS.io m
 ```go
 import (
     "context"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
     "time"
+
+    gfshutdown "github.com/gelmium/graceful-shutdown"
     "github.com/go-monolith/mono"
 )
 
+const shutdownTimeout = 30 * time.Second
+
 func main() {
     app, err := mono.NewMonoApplication(
+        mono.WithShutdownTimeout(shutdownTimeout),
         mono.WithLogLevel(mono.LogLevelInfo),
         mono.WithLogFormat(mono.LogFormatText),
-        mono.WithShutdownTimeout(10*time.Second),
+        // Optional: for persistent JetStream storage
+        // mono.WithJetStreamStorageDir("/tmp/my-app"),
+        // Optional: custom NATS port
+        // mono.WithNATSPort(4222),
     )
     if err != nil {
         log.Fatalf("Failed to create app: %v", err)
@@ -48,8 +60,21 @@ func main() {
         log.Fatalf("Failed to start: %v", err)
     }
 
-    // Graceful shutdown
-    defer app.Stop(ctx)
+    log.Println("Application started successfully")
+
+    // Graceful shutdown (standard pattern)
+    wait := gfshutdown.GracefulShutdown(
+        context.Background(),
+        shutdownTimeout,
+        map[string]gfshutdown.Operation{
+            "mono-app": func(ctx context.Context) error {
+                return app.Stop(ctx)
+            },
+        },
+    )
+
+    exitCode := <-wait
+    os.Exit(exitCode)
 }
 ```
 
@@ -59,6 +84,9 @@ Every module implements three methods:
 
 ```go
 type MyModule struct{}
+
+// Compile-time interface check
+var _ mono.Module = (*MyModule)(nil)
 
 func (m *MyModule) Name() string { return "my-module" }
 
@@ -101,7 +129,7 @@ Four patterns for inter-module communication:
 | **Queue Group** | Async, load-balanced | ~1ms |
 | **Stream Consumer** | Durable, at-least-once | ~5ms |
 
-### Registering Services (Provider)
+### Registering RequestReplyService
 
 ```go
 func (m *PaymentModule) RegisterServices(container mono.ServiceContainer) error {
@@ -112,8 +140,72 @@ func (m *PaymentModule) RegisterServices(container mono.ServiceContainer) error 
 }
 
 func (m *PaymentModule) handleProcessPayment(
-    ctx context.Context, req *mono.Msg) ([]byte, error) {
+    ctx context.Context, msg *mono.Msg) ([]byte, error) {
+    var req PaymentRequest
+    json.Unmarshal(msg.Data, &req)
     // Process and return response
+    return json.Marshal(response)
+}
+```
+
+### Registering QueueGroupService (Fire-and-Forget)
+
+Use `mono.QGHP` (Queue Group Handler Params) for background job processing:
+
+```go
+func (m *WorkerModule) RegisterServices(container mono.ServiceContainer) error {
+    // Single queue group
+    return container.RegisterQueueGroupService(
+        "process-job",
+        mono.QGHP{
+            QueueGroup: "job-workers",
+            Handler:    m.handleJob,
+        },
+    )
+}
+
+// Multiple handlers on same service (load balanced)
+func (m *WorkerModule) RegisterServices(container mono.ServiceContainer) error {
+    return container.RegisterQueueGroupService(
+        "process-job",
+        mono.QGHP{QueueGroup: "worker-1", Handler: m.handleJob1},
+        mono.QGHP{QueueGroup: "worker-2", Handler: m.handleJob2},
+    )
+}
+
+func (m *WorkerModule) handleJob(ctx context.Context, msg *mono.Msg) error {
+    var job JobRequest
+    json.Unmarshal(msg.Data, &job)
+    // Process job (fire-and-forget, no response)
+    return nil
+}
+```
+
+### Typed Service Registration (Recommended)
+
+Use the helper package for type-safe handlers:
+
+```go
+import "github.com/go-monolith/mono/pkg/helper"
+
+func (m *Module) RegisterServices(container mono.ServiceContainer) error {
+    return helper.RegisterTypedRequestReplyService(
+        container,
+        "calculate",
+        json.Unmarshal,  // Request unmarshaler
+        json.Marshal,    // Response marshaler
+        m.handleCalculate,
+    )
+}
+
+// Handler with typed request/response
+func (m *Module) handleCalculate(
+    ctx context.Context,
+    req CalculateRequest,
+    msg *mono.Msg,
+) (CalculateResponse, error) {
+    // Process typed request, return typed response
+    return CalculateResponse{Result: req.A + req.B}, nil
 }
 ```
 
@@ -132,9 +224,18 @@ func (m *OrderModule) SetDependencyServiceContainer(
 }
 
 func (m *OrderModule) processOrder(ctx context.Context) error {
-    client, _ := m.paymentContainer.GetRequestReplyService("process-payment")
-    resp, err := client.Call(ctx, requestData)
-    // Handle response
+    // Type-safe service call
+    var response PaymentResponse
+    err := helper.CallRequestReplyService(
+        ctx,
+        m.paymentContainer,
+        "process-payment",
+        json.Marshal,
+        json.Unmarshal,
+        &PaymentRequest{Amount: 100},
+        &response,
+    )
+    return err
 }
 ```
 
@@ -205,28 +306,52 @@ func (m *NotificationModule) handleOrderCreated(
 
 ## Project Structure
 
-Recommended layout for larger applications:
+Recommended layout for Mono applications:
 
 ```
 my-app/
-├── main.go                  # Application entry point
-├── go.mod
-├── modules/
-│   ├── order/
-│   │   ├── module.go       # Module implementation
-│   │   ├── adapter.go      # Service adapter (typed client)
-│   │   ├── events.go       # Event definitions
-│   │   └── types.go        # Domain types
-│   ├── payment/
+├── main.go                    # Application entry point
+├── go.mod / go.sum            # Dependencies
+├── README.md                  # Documentation
+├── bin/                       # Compiled binaries
+│   └── my-app
+├── modules/                   # Domain modules
+│   ├── api/                   # HTTP server module
 │   │   ├── module.go
-│   │   └── types.go
-│   └── notification/
+│   │   ├── handlers.go
+│   │   └── routes.go
+│   ├── user/                  # Business module with database (SOLID principles)
+│   │   ├── module.go          # Module implementation
+│   │   ├── service.go         # Service handlers
+│   │   ├── service_test.go    # Unit tests
+│   │   ├── types.go           # Domain types
+│   │   ├── events.go          # Event definitions
+│   │   ├── repository.go      # Repository interface
+│   │   └── db/                # Module-owned database (sqlc)
+│   │       ├── schema.sql     # Schema owned by this module
+│   │       ├── sqlc.yaml      # sqlc config for this module
+│   │       ├── queries/
+│   │       │   └── users.sql
+│   │       └── generated/     # sqlc generated code
+│   │           ├── db.go
+│   │           ├── models.go
+│   │           └── query.sql.go
+│   └── notification/          # Event consumer module
 │       ├── module.go
 │       └── handlers.go
-├── config/
-│   └── config.go
-└── tests/
-    └── integration_test.go
+├── domain/                    # Shared domain types (optional)
+│   └── types.go
+├── middleware/                # Custom middleware (optional)
+│   └── ratelimit/
+│       ├── middleware.go
+│       └── limiter.go
+└── client/                    # External clients (polyglot)
+    ├── python/
+    │   ├── client.py
+    │   └── client_test.py
+    └── nodejs/
+        ├── client.js
+        └── client.test.js
 ```
 
 ## Best Practices
@@ -238,7 +363,8 @@ my-app/
 - Use events for broadcast/loose coupling (emitter doesn't know consumers)
 - Declare dependencies explicitly via `DependentModule`
 - Handle errors explicitly, wrap with context using `%w`
-- Use structured logging with `log/slog` or pass in `app.Logger()` (builtin framework logger) in module constructor
+- Use structured logging with `log/slog` or pass in `app.Logger()` in module constructor
+- Use compile-time interface checks: `var _ mono.Module = (*MyModule)(nil)`
 
 ### Don't
 
@@ -350,13 +476,21 @@ Plugins are specialized modules for cross-cutting infrastructure concerns. They 
 | **kv-jetstream** | Key-value storage | Sessions, caching, config, distributed locks |
 | **fs-jetstream** | File/object storage | Documents, media, uploads, large files |
 
-### Using Plugins
+### fs-jetstream Plugin
 
 ```go
-// Register plugin with alias
-storage, _ := fsjetstream.New(fsjetstream.Config{
+import fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
+
+// In main.go
+storage, err := fsjetstream.New(fsjetstream.Config{
     Buckets: []fsjetstream.BucketConfig{
-        {Name: "documents", MaxBytes: 1_000_000_000},
+        {
+            Name:        "files",
+            Description: "File storage bucket",
+            MaxBytes:    1024 * 1024 * 1024, // 1GB
+            Storage:     fsjetstream.FileStorage,
+            Compression: true,
+        },
     },
 })
 app.RegisterPlugin(storage, "storage")
@@ -370,9 +504,33 @@ func (m *MyModule) SetPlugin(alias string, plugin mono.PluginModule) {
 
 // Access bucket in Start()
 func (m *MyModule) Start(ctx context.Context) error {
-    m.docs = m.storage.Bucket("documents")
+    m.bucket = m.storage.Bucket("files")
+    // bucket.Put(), bucket.Get(), bucket.Delete(), bucket.List()
     return nil
 }
+```
+
+### kv-jetstream Plugin
+
+```go
+import kvjetstream "github.com/go-monolith/mono/plugin/kv-jetstream"
+
+kvStore, err := kvjetstream.New(kvjetstream.Config{
+    Buckets: []kvjetstream.BucketConfig{
+        {
+            Name:    "sessions",
+            Storage: kvjetstream.MemoryStorage,
+            TTL:     24 * time.Hour,
+        },
+        {
+            Name:    "config",
+            Storage: kvjetstream.FileStorage,
+        },
+    },
+})
+app.RegisterPlugin(kvStore, "kv")
+
+// Usage: bucket.Put(key, value), bucket.Get(key), bucket.Delete(key)
 ```
 
 ### Creating Custom Plugins
@@ -400,6 +558,10 @@ For detailed patterns and implementation examples:
 - **`references/events.md`** - Event emitter and consumer patterns
 - **`references/plugins.md`** - Plugin creation and built-in plugins
 - **`references/middleware.md`** - Middleware hooks and built-in middleware
+- **`references/http-servers.md`** - HTTP server integration (Fiber, Gin)
+- **`references/databases.md`** - Database integration (GORM, sqlc)
+- **`references/graceful-shutdown.md`** - Graceful shutdown patterns
+- **`references/polyglot-clients.md`** - Python and Node.js client patterns
 
 ### Example Files
 
@@ -407,6 +569,7 @@ Working examples in `examples/`:
 
 - **`examples/basic-module.go`** - Minimal module implementation
 - **`examples/service-provider.go`** - Service provider with RequestReply
+- **`examples/queue-group-service.go`** - QueueGroupService with QGHP pattern
 - **`examples/multi-module.go`** - Multi-module with dependencies and service adapters
 - **`examples/event-emitter.go`** - Event emitter with consumer
 - **`examples/plugin-module.go`** - Custom plugin implementation
@@ -414,11 +577,32 @@ Working examples in `examples/`:
 - **`examples/fs-jetstream-usecase.go`** - Document storage, uploads, media
 - **`examples/middleware-module.go`** - Custom metrics middleware
 - **`examples/middleware-usecases.go`** - Using requestid, accesslog, audit
+- **`examples/http-fiber-module.go`** - Fiber HTTP server integration
+- **`examples/http-gin-module.go`** - Gin HTTP server integration
+- **`examples/gorm-sqlite-module.go`** - GORM with SQLite integration
+- **`examples/sqlc-postgres-module.go`** - sqlc with PostgreSQL integration
+
+### Example Projects
+
+Real-world implementations in [mono-recipes](https://github.com/go-monolith/mono-recipes/tree/main/projects) collection:
+
+| Project | Demonstrates |
+|---------|--------------|
+| `background-jobs-demo` | QueueGroupService with multiple workers |
+| `file-upload-demo` | fs-jetstream plugin with Gin HTTP server |
+| `url-shortener-demo` | kv-jetstream plugin with events and Fiber |
+| `jwt-auth-demo` | Authentication with Fiber and dependencies |
+| `websocket-chat-demo` | EventBus patterns with WebSocket |
+| `python-nats-client-demo` | Python client integration |
+| `node-nats-client-demo` | Node.js client with fs-jetstream |
+| `rate-limiting-middleware` | Custom middleware with Redis |
+| `sqlc-postgres-demo` | sqlc with PostgreSQL and health checks |
+| `gorm-sqlite-demo` | GORM with SQLite |
+| `redis-caching-plugin` | Redis caching plugin pattern |
 
 ### Official Documentation
 
-Full documentation available at `/workspaces/mono/docs/official/`:
-
-- Getting Started: `getting-started/quickstart.md`
-- Core Concepts: `core-concepts/modules.md`, `core-concepts/services.md`
-- API Reference: `api/framework.md`, `api/container.md`
+Full documentation available at:
+- Getting Started: https://gelmium.gitbook.io/monolith-framework
+- Core Concepts: https://gelmium.gitbook.io/monolith-framework#core-concepts
+- API Reference: https://gelmium.gitbook.io/monolith-framework/api-reference/api

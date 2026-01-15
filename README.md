@@ -4,9 +4,9 @@
 
 Here you can find the most **delicious** recipes to cook delicious meals using our Monolith Framework.
 
-*All examples presented here are built with `github.com/go-monolith/mono` framework **v0.0.3***
+*All examples presented here are built with `github.com/go-monolith/mono` framework **v0.0.4***
 
-> **Note:** All recipes have been updated to use mono framework v0.0.3, which includes improved error handling in RequestReplyService and QueueGroupService patterns.
+> **Note:** All recipes have been updated to use mono framework v0.0.4, which includes improved error handling in RequestReplyService and QueueGroupService patterns.
 
 ## 🌽 Table of contents
 
@@ -17,12 +17,18 @@ Here you can find the most **delicious** recipes to cook delicious meals using o
 
 ### Data & Storage
 - [GORM SQLite Demo](./projects/gorm-sqlite-demo/README.md) - **GORM** ORM with SQLite integration demonstrating the **ServiceProviderModule** pattern for CRUD services.
+- [sqlc PostgreSQL Demo](./projects/sqlc-postgres-demo/README.md) - **sqlc** for type-safe SQL code generation with **PostgreSQL**, demonstrating compile-time query validation and the **ServiceProviderModule** pattern.
+- [Prisma + sqlc PostgreSQL Demo](./projects/prisma-postgres-demo/README.md) - Hybrid approach using **Prisma** for local development and migrations (PGlite-powered) with **sqlc** for type-safe database access.
 - [File Upload Demo](./projects/file-upload-demo/README.md) - File upload/download functionality using the built-in **fs-jetstream** plugin with **Gin** HTTP framework.
 - [Redis Caching Demo](./projects/redis-caching-plugin/README.md) - **Redis** caching with cache-aside pattern, automatic cache invalidation, and real-time statistics using **Fiber** and **GORM**.
 
 ### Authentication & Security
 - [JWT Auth Demo](./projects/jwt-auth-demo/README.md) - Complete JWT authentication with access/refresh tokens, bcrypt password hashing, and authentication middleware using **Echo** and **GORM**.
 - [Rate Limiting Middleware](./projects/rate-limiting-middleware/README.md) - **Redis**-based sliding window rate limiting using the **MiddlewareModule** pattern to protect services.
+
+### Polyglot & Interoperability
+- [Node.js NATS Client Demo](./projects/node-nats-client-demo/README.md) - **Polyglot microservices** with Node.js clients and Go Mono services via NATS, featuring **fs-jetstream** file storage and real-time object store watching.
+- [Python NATS Client Demo](./projects/python-nats-client-demo/README.md) - **Polyglot microservices** with Python clients and Go Mono services via NATS, showcasing **RequestReplyService**, **QueueGroupService**, and **StreamConsumerService** patterns.
 
 ### Real-time & Communication
 - [WebSocket Chat Demo](./projects/websocket-chat-demo/README.md) - Real-time chat application with WebSocket communication, multi-room support, and **EventBus** pubsub pattern for message broadcasting.

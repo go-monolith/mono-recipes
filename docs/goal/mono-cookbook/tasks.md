@@ -36,7 +36,7 @@ Constraints: [constraints.md](./constraints.md)
 
 5. Milestone 5 - Advanced Patterns
    - Tasks: 11-15
-   - Notes: CRUD generation, resilience patterns, pagination, audit trails
+   - Notes: Polyglot clients (Node.js), Prisma migrations + sqlc hybrid, CRUD generation, resilience patterns
 
 ## Task List
 
@@ -391,4 +391,54 @@ Constraints: [constraints.md](./constraints.md)
   - Re-run all unit tests (Go and Node.js) after code simplification to ensure they still pass
   - Success Criteria: `go run .` starts Mono app, `node demo.js` saves files, archives them, and watcher prints all bucket changes in real-time
   - _Dependencies: 3, 10_
+  - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_
+
+- [x] 12. Create Prisma Postgres recipe with Prisma migrations + sqlc for database access
+  - Create new recipe directory: `projects/prisma-postgres-demo/`
+  - Implement mono application combining Prisma (migrations + local dev) with sqlc (type-safe queries)
+  - **Prisma for infrastructure only** (NOT as ORM for database access):
+    - Use `prisma dev` command (PGlite-powered) for local development without Docker or external PostgreSQL
+    - Define schema in `schema.prisma` with domain entity (e.g., `Article` with id, title, content, slug, published, created_at, updated_at)
+    - Use `prisma migrate dev` for database migrations and schema changes
+  - **sqlc for database access layer**:
+    - Include `query.sql` with SQL queries for CRUD operations
+    - Include `sqlc.yaml` configuration file
+    - Run `sqlc generate` to produce type-safe Go code for database operations
+  - Implement `ServiceProviderModule` exposing `RequestReplyService` for CRUD operations:
+    - `article.create` - Create a new article (returns created article with ID)
+    - `article.get` - Get article by ID or slug
+    - `article.list` - List all articles with pagination and filtering (published/draft)
+    - `article.update` - Update article by ID
+    - `article.delete` - Delete article by ID
+    - `article.publish` - Publish a draft article (sets published=true)
+  - No REST API endpoints - module only exposes services via mono's ServiceContainer
+  - Include `Makefile` with targets:
+    - `make prisma-dev` - Start local Prisma Postgres instance via `prisma dev`
+    - `make prisma-migrate` - Run database migrations via `prisma migrate dev`
+    - `make sqlc-generate` - Generate type-safe Go code from SQL queries
+    - `make generate` - Run both prisma migrate and sqlc generate
+    - `make build` - Build the application
+    - `make run` - Run the application
+  - Include comprehensive `README.md` explaining:
+    - Why combine Prisma + sqlc (best of both worlds: Prisma's migration tooling + sqlc's type-safe SQL)
+    - Benefits of `prisma dev` for local development (no Docker, no external DB, rapid iteration)
+    - Why NOT use Prisma as ORM (Go ecosystem preference for sqlc, compile-time SQL validation)
+    - Trade-offs: Prisma migrations vs raw SQL migrations vs golang-migrate
+    - When to use this hybrid approach vs pure sqlc or pure ORM
+    - Migration workflow: schema.prisma change → prisma migrate → sqlc generate → run
+    - How RequestReplyService works in mono framework
+  - Create executable `demo.sh` script demonstrating:
+    - Start Prisma Postgres local instance in background (`prisma dev --detach`)
+    - Run migrations to create database schema
+    - Generate sqlc code
+    - Start the mono application
+    - Send request messages via `nats request` for CRUD operations
+    - JSON request/response payloads for each operation
+    - Examples: create article, list articles, get by slug, update, publish, delete
+    - Cleanup: stop Prisma Postgres instance
+  - Add unit tests for repository layer with test database
+  - Use `code-simplifier` subagent to simplify and refine the code for clarity and maintainability
+  - Re-run all unit tests after code simplification to ensure they still pass
+  - Success Criteria: `prisma dev` starts local DB, sqlc generates Go code, `go run .` starts app, `demo.sh` performs full CRUD via `nats` CLI, all unit tests pass after code simplification
+  - _Dependencies: 9_
   - _Requirements: self-contained, working example with a demo script, have README.md explains "why"_

@@ -9,7 +9,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("PRISMA_DB_URL")
-  schemas  = ["public", "article_module"]
+  schemas  = ["public", "article_module", "blog"]
 }
 
 model Article {
@@ -23,4 +23,32 @@ model Article {
 
   @@schema("article_module")
   @@map("articles")
+}
+
+model Post {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String    @db.VarChar(255)
+  content   String    @db.Text
+  slug      String    @unique @db.VarChar(255)
+  published Boolean   @default(false)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  comments  Comment[]
+
+  @@schema("blog")
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId    String   @map("post_id") @db.Uuid
+  author    String   @db.VarChar(255)
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@schema("blog")
+  @@map("comments")
 }

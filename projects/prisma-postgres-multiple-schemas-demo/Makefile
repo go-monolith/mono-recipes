@@ -10,6 +10,9 @@ prisma-dev:
 prisma-dev-detach:
 	npx prisma dev --name=prisma-postgres-demo --detach
 
+prisma-dev-start:
+	npx prisma dev start prisma-postgres-demo
+
 prisma-dev-stop:
 	npx prisma dev stop prisma-postgres-demo
 
@@ -20,7 +23,9 @@ prisma-dev-ls:
 prisma-migrate:
 	npx prisma migrate dev
 	mkdir -p ./modules/article/db/prisma/
+	mkdir -p ./modules/blog/db/prisma/
 	npx prisma migrate diff --from-empty --to-schema-datamodel ./prisma/schema.prisma --script > ./modules/article/db/prisma/full_schema.sql
+	npx prisma migrate diff --from-empty --to-schema-datamodel ./prisma/schema.prisma --script > ./modules/blog/db/prisma/full_schema.sql
 
 prisma-migrate-reset:
 	npx prisma migrate reset prisma-postgres-demo
@@ -28,6 +33,7 @@ prisma-migrate-reset:
 # sqlc code generation
 sqlc-generate:
 	cd modules/article/db && sqlc generate
+	cd modules/blog/db && sqlc generate
 
 # Combined generation (migrations + sqlc)
 generate: prisma-migrate sqlc-generate

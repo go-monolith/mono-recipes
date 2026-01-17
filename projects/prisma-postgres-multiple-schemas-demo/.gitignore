@@ -1,2 +1,2 @@
-modules/article/db/generated
-modules/article/db/prisma
+modules/*/db/generated
+modules/*/db/prisma

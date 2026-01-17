@@ -1,0 +1,24 @@
+{
+  "name": "prisma-postgres-demo",
+  "version": "1.0.0",
+  "description": "Prisma + sqlc PostgreSQL Recipe for Mono Framework",
+  "private": true,
+  "scripts": {
+    "prisma:dev": "prisma dev --name=prisma-postgres-demo",
+    "prisma:dev:detach": "prisma dev --name=prisma-postgres-demo --detach",
+    "prisma:dev:stop": "prisma dev stop prisma-postgres-demo",
+    "prisma:dev:ls": "prisma dev ls",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:generate": "prisma generate"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.0",
+    "prisma": "^6.8.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.2"
+  }
+}

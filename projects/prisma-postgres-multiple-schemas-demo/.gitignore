@@ -1,0 +1,2 @@
+modules/*/db/generated
+modules/*/db/prisma

@@ -4,9 +4,9 @@
 
 Here you can find the most **delicious** recipes to cook delicious meals using our Monolith Framework.
 
-*All examples presented here are built with `github.com/go-monolith/mono` framework **v0.0.7***
+*All examples presented here are built with `github.com/go-monolith/mono` framework **v0.0.8***
 
-> **Note:** All recipes have been updated to use mono framework v0.0.7, which introduces the server-side **CronService** type (JetStream message scheduler) showcased in the new [Cron Scheduler Demo](./projects/cron-scheduler-demo/README.md).
+> **Note:** All recipes have been updated to use mono framework v0.0.8, which introduces the server-side **CronService** type (JetStream message scheduler) — accepting both five-field and six-field cron expressions — showcased in the new [Cron Scheduler Demo](./projects/cron-scheduler-demo/README.md).
 
 ## 🌽 Table of contents
 

@@ -37,7 +37,7 @@ func (m *Module) Name() string { return "scheduler" }
 // Start is a no-op; the cron schedules are provisioned by the framework when
 // RegisterServices runs. The consumers are started automatically.
 func (m *Module) Start(_ context.Context) error {
-	log.Println("[scheduler] cron services armed: heartbeat (@every 2s), metrics (*/20 * * * * *), daily-report (@daily)")
+	log.Println("[scheduler] cron services armed: heartbeat (@every 2s), metrics (*/20 * * * * *, 6-field), daily-report (0 0 * * *, 5-field)")
 	return nil
 }
 
@@ -51,12 +51,16 @@ func (m *Module) Stop(_ context.Context) error {
 // different schedule format accepted by CronServiceConfig.Schedule:
 //
 //   - "@every 2s"        interval form (minimum 1s; no time zone)
-//   - "*/20 * * * * *"   cron expression (here: every 20s)
-//   - "@daily"           named alias (also: @hourly, @weekly, @monthly, @yearly)
+//   - "*/20 * * * * *"   six-field cron expression (here: every 20s)
+//   - "0 0 * * *"        standard five-field cron expression (here: daily 00:00)
 //
-// NOTE on cron syntax: the embedded NATS scheduler uses a SIX-field cron format
+// NOTE on cron syntax: mono v0.0.8+ accepts BOTH the standard five-field cron
+// format and the embedded scheduler's native six-field (seconds-first) format.
+// A five-field expression is normalized by prepending a "0" seconds field, so
+// "0 0 * * *" becomes "0 0 0 * * *" (daily at midnight) — see
+// types.NormalizeCronSchedule.
 //
-//	┌──────────── second (0-59)
+//	┌──────────── second (0-59)   ← six-field only; omit for five-field
 //	│ ┌────────── minute (0-59)
 //	│ │ ┌──────── hour (0-23)
 //	│ │ │ ┌────── day of month (1-31)
@@ -64,8 +68,8 @@ func (m *Module) Stop(_ context.Context) error {
 //	│ │ │ │ │ ┌── day of week (0-6, Sun=0)
 //	* * * * * *
 //
-// Step (*/n), ranges (1-5) and lists (1,3,5) are supported. A common five-field
-// expression like "0 0 * * *" is rejected — add the leading seconds field.
+// Step (*/n), ranges (1-5) and lists (1,3,5) are supported. Named aliases
+// (@daily, @hourly, ...) and intervals (@every 5m) work too.
 //
 // The framework owns acknowledgement: returning nil Acks the occurrence, a
 // non-nil error Naks it (redelivered up to the consumer's MaxDeliver).
@@ -91,10 +95,12 @@ func (m *Module) RegisterServices(c mono.ServiceContainer) error {
 		return fmt.Errorf("register metrics cron: %w", err)
 	}
 
-	// 3) Named alias — a once-a-day summary at 00:00 UTC. Demonstrates the
-	//    alias form; in a real app this is where you'd email a daily digest.
+	// 3) Standard FIVE-field cron expression — a once-a-day summary at 00:00 UTC.
+	//    "0 0 * * *" is normalized to "0 0 0 * * *" by the framework (v0.0.8+).
+	//    In a real app this is where you'd email a daily digest. (The named
+	//    aliases @daily/@hourly/... are accepted here too.)
 	if err := c.RegisterCronService("daily-report", mono.CronServiceConfig{
-		Schedule: "@daily",
+		Schedule: "0 0 * * *",
 		TimeZone: "UTC",
 		Payload:  []byte(`{"event":"daily-report"}`),
 	}, m.onDailyReport); err != nil {

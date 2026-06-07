@@ -28,7 +28,7 @@ means N duplicate firings per tick, so you end up hand-rolling leader election. 
                           ┌───────────────────────────────────────────┐
    scheduler module       │  MONO_CRON_scheduler_heartbeat  @every 2s  │
    registers 3 schedules ─┼─►MONO_CRON_scheduler_metrics    */20 * * * * *
-                          │  MONO_CRON_scheduler_daily-report @daily   │
+                          │  MONO_CRON_scheduler_daily-report 0 0 * * *│
                           └───────────────┬───────────────────────────┘
                                           │ one delivery per occurrence
                                           ▼
@@ -44,18 +44,21 @@ means N duplicate firings per tick, so you end up hand-rolling leader election. 
 
 ## The three schedules (schedule-format showcase)
 
-| Service        | `Schedule`         | Form              | Notes                                   |
-| -------------- | ------------------ | ----------------- | --------------------------------------- |
-| `heartbeat`    | `@every 2s`        | interval          | minimum `1s`; no time zone              |
-| `metrics`      | `*/20 * * * * *`   | cron expression   | every 20s; `TimeZone: "UTC"`, `TTL: 15s`|
-| `daily-report` | `@daily`           | named alias       | 00:00 UTC (also `@hourly`, `@weekly`, …)|
+| Service        | `Schedule`         | Form                   | Notes                                   |
+| -------------- | ------------------ | ---------------------- | --------------------------------------- |
+| `heartbeat`    | `@every 2s`        | interval               | minimum `1s`; no time zone              |
+| `metrics`      | `*/20 * * * * *`   | six-field cron         | every 20s; `TimeZone: "UTC"`, `TTL: 15s`|
+| `daily-report` | `0 0 * * *`        | five-field cron        | 00:00 UTC; normalized to `0 0 0 * * *`  |
 
-### ⚠️ Cron expressions are SIX fields (seconds first)
+### Cron expressions: five OR six fields
 
-The embedded scheduler uses a six-field cron format — a leading **seconds** field:
+As of **mono v0.0.8** the scheduler accepts both the standard **five-field** cron format
+and the embedded scheduler's native **six-field** (seconds-first) format. A five-field
+expression is normalized by prepending a `0` seconds field, so `0 0 * * *` becomes
+`0 0 0 * * *` (daily at midnight). Use six fields when you need sub-minute precision.
 
 ```
-┌──────────── second (0-59)
+┌──────────── second (0-59)   ← six-field only; omit for five-field
 │ ┌────────── minute (0-59)
 │ │ ┌──────── hour (0-23)
 │ │ │ ┌────── day of month (1-31)
@@ -64,8 +67,7 @@ The embedded scheduler uses a six-field cron format — a leading **seconds** fi
 * * * * * *
 ```
 
-Steps (`*/n`), ranges (`1-5`) and lists (`1,3,5`) are supported. A familiar five-field
-expression such as `0 0 * * *` is **rejected** — write `0 0 0 * * *` instead. Named aliases
+Steps (`*/n`), ranges (`1-5`) and lists (`1,3,5`) are supported. Named aliases
 (`@hourly`, `@daily`, …) and intervals (`@every 5m`) are also accepted.
 
 ## `CronServiceConfig` options

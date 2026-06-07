@@ -129,8 +129,9 @@ func (m *Module) onHeartbeat(_ context.Context, msg *mono.Msg) error {
 func (m *Module) onMetrics(_ context.Context, _ *mono.Msg) error {
 	n := m.store.Record("metrics")
 	snap := m.store.Snapshot()
+	heartbeats := snap["heartbeat"].Ticks // zero if the heartbeat has not yet fired
 	log.Printf("[scheduler] metrics rollup #%d at %s — heartbeats so far: %d",
-		n, time.Now().UTC().Format(time.RFC3339), snap["heartbeat"].Ticks)
+		n, time.Now().UTC().Format(time.RFC3339), heartbeats)
 	return nil
 }
 

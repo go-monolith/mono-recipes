@@ -7,10 +7,12 @@ import (
 	"time"
 )
 
-// ScheduleStat is the public view of a single schedule's activity.
+// ScheduleStat is the public view of a single schedule's activity. LastTick is a
+// pointer so it is genuinely omitted from JSON (via omitempty) for a schedule
+// that has not fired yet — a struct time.Time would always be serialized.
 type ScheduleStat struct {
-	Ticks    int64     `json:"ticks"`
-	LastTick time.Time `json:"last_tick,omitempty"`
+	Ticks    int64      `json:"ticks"`
+	LastTick *time.Time `json:"last_tick,omitempty"`
 }
 
 // Store tracks how many times each named cron schedule has fired.
@@ -44,7 +46,10 @@ func (s *Store) Snapshot() map[string]ScheduleStat {
 	defer s.mu.RUnlock()
 	out := make(map[string]ScheduleStat, len(s.counts))
 	for name, c := range s.counts {
-		out[name] = ScheduleStat{Ticks: c, LastTick: s.last[name]}
+		// Copy the value before taking its address so the pointer doesn't alias
+		// into the map (and so each snapshot entry is independent).
+		ts := s.last[name]
+		out[name] = ScheduleStat{Ticks: c, LastTick: &ts}
 	}
 	return out
 }

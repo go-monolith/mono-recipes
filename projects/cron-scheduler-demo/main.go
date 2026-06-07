@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -22,7 +23,10 @@ func main() {
 	// CronServices are backed by the NATS JetStream message scheduler, so the
 	// embedded server must run with JetStream enabled — that requires a storage
 	// directory. Without WithJetStreamStorageDir, RegisterCronService fails.
-	storageDir := filepath.Join(os.TempDir(), "mono-cron-scheduler-demo")
+	// The per-PID subdirectory keeps two instances started on the same machine
+	// (common during local dev) from fighting over the same JetStream state.
+	storageDir := filepath.Join(os.TempDir(), "mono-cron-scheduler-demo",
+		fmt.Sprintf("run-%d", os.Getpid()))
 
 	app, err := mono.NewMonoApplication(
 		mono.WithLogLevel(mono.LogLevelInfo),

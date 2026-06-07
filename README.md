@@ -4,9 +4,9 @@
 
 Here you can find the most **delicious** recipes to cook delicious meals using our Monolith Framework.
 
-*All examples presented here are built with `github.com/go-monolith/mono` framework **v0.0.4***
+*All examples presented here are built with `github.com/go-monolith/mono` framework **v0.0.7***
 
-> **Note:** All recipes have been updated to use mono framework v0.0.4, which includes improved error handling in RequestReplyService and QueueGroupService patterns.
+> **Note:** All recipes have been updated to use mono framework v0.0.7, which introduces the server-side **CronService** type (JetStream message scheduler) showcased in the new [Cron Scheduler Demo](./projects/cron-scheduler-demo/README.md).
 
 ## 🌽 Table of contents
 
@@ -14,6 +14,7 @@ Here you can find the most **delicious** recipes to cook delicious meals using o
 - [Graceful Shutdown Demo](./projects/graceful-shutdown-demo/README.md) - Demonstrates graceful shutdown of a HTTP server module (using **Fiber**) and a background worker module.
 - [Hexagonal Architecture](./projects/hexagonal-architecture/README.md) - Example of hexagonal architecture with modules, services, and event handling.
 - [Background Jobs Demo](./projects/background-jobs-demo/README.md) - Background job processing system using **QueueGroupService** pattern with load-balanced queue groups.
+- [Cron Scheduler Demo](./projects/cron-scheduler-demo/README.md) - Server-side scheduled jobs using the **CronService** pattern (JetStream message scheduler), demonstrating interval, cron-expression, and named-alias schedules with cluster-wide single firing.
 
 ### Data & Storage
 - [GORM SQLite Demo](./projects/gorm-sqlite-demo/README.md) - **GORM** ORM with SQLite integration demonstrating the **ServiceProviderModule** pattern for CRUD services.

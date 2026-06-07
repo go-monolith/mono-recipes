@@ -1,7 +1,7 @@
 ---
 name: mono-dev
-description: This skill should be used when the user asks to "create a Mono application", "add a new Mono module", "create a Mono plugin", "create a Mono middleware", "use kv-jetstream plugin", "use fs-jetstream plugin", "create Python client to connect to Mono app", "create Node.js client to connect to Mono app", "add polyglot client for Mono app", "add background jobs in Mono app", "add queue-group workers", or mentions "mono framework", "MonoApplication", "ServiceContainer", "ChannelService", "RequestReplyService", "QueueGroupService", "StreamConsumerService", "EventBus", "EventRegistry", "EventEmitter", "EventConsumer", "EventStreamConsumer", "PluginModule", "UsePluginModule", "MiddlewareModule", "OnServiceRegistration", "OnModuleLifecycle", "OnOutgoingMessage", "kv-jetstream", "fs-jetstream", "KVStoragePort", "FileStoragePort", "QGHP", "nats.py", "nats.js". Provides best practices for developing modular monolith applications with the go-monolith/mono framework.
-version: 0.4.0
+description: This skill should be used when the user asks to "create a Mono application", "add a new Mono module", "create a Mono plugin", "create a Mono middleware", "use kv-jetstream plugin", "use fs-jetstream plugin", "create Python client to connect to Mono app", "create Node.js client to connect to Mono app", "add polyglot client for Mono app", "add background jobs in Mono app", "add queue-group workers", "add a cron job in Mono app", "schedule a recurring task", "add a scheduled service", or mentions "mono framework", "MonoApplication", "ServiceContainer", "ChannelService", "RequestReplyService", "QueueGroupService", "StreamConsumerService", "CronService", "RegisterCronService", "CronServiceConfig", "EventBus", "EventRegistry", "EventEmitter", "EventConsumer", "EventStreamConsumer", "PluginModule", "UsePluginModule", "MiddlewareModule", "OnServiceRegistration", "OnModuleLifecycle", "OnOutgoingMessage", "kv-jetstream", "fs-jetstream", "KVStoragePort", "FileStoragePort", "QGHP", "nats.py", "nats.js". Provides best practices for developing modular monolith applications with the go-monolith/mono framework.
+version: 0.5.0
 ---
 
 # Mono Framework Development
@@ -120,7 +120,7 @@ Modules can implement optional interfaces for additional capabilities:
 
 ## Service Communication Patterns
 
-Four patterns for inter-module communication:
+Five patterns for inter-module and scheduled communication:
 
 | Type | Use Case | Latency |
 |------|----------|---------|
@@ -128,6 +128,7 @@ Four patterns for inter-module communication:
 | **Request-Reply** | Synchronous with response | ~1ms |
 | **Queue Group** | Async, load-balanced | ~1ms |
 | **Stream Consumer** | Durable, at-least-once | ~5ms |
+| **Cron** | Server-side scheduled (cron/interval) | per schedule |
 
 ### Registering RequestReplyService
 
@@ -180,6 +181,52 @@ func (m *WorkerModule) handleJob(ctx context.Context, msg *mono.Msg) error {
     return nil
 }
 ```
+
+### Registering CronService (Scheduled)
+
+Run a handler on a server-side schedule. The schedule lives in the embedded NATS
+JetStream message scheduler, so in a multi-node deployment **exactly one**
+occurrence fires per tick — no client-side ticker, no leader election. Delivery
+is at-least-once with explicit ack (return `nil` to Ack, an error to Nak).
+
+CronService requires JetStream — create the app with a storage dir:
+`mono.NewMonoApplication(mono.WithJetStreamStorageDir("/tmp/my-app"))`.
+
+```go
+func (m *MaintenanceModule) RegisterServices(container mono.ServiceContainer) error {
+    return container.RegisterCronService(
+        "cleanup",
+        mono.CronServiceConfig{
+            Schedule: "0 3 * * *",                     // schedule (required)
+            Payload:  []byte(`{"event":"cleanup"}`),   // static body per tick
+            TimeZone: "UTC",                            // optional; default UTC
+            TTL:      1 * time.Hour,                    // optional; drop stale ticks
+            // SourceSubject: "metrics.raw",            // deliver last msg on a
+            //   subject instead of Payload (downsampling); exclusive with Payload
+            // Deprecated: true,                        // purge schedule + stop
+            //   consumer, keep the registration (phase one of safe retirement)
+        },
+        m.handleCleanup,
+    )
+}
+
+func (m *MaintenanceModule) handleCleanup(ctx context.Context, msg *mono.Msg) error {
+    // Runs on each occurrence; msg.Data carries the configured Payload.
+    return m.purgeExpiredRecords(ctx)
+}
+```
+
+**Schedule formats** (`CronServiceConfig.Schedule`):
+
+| Form | Example | Notes |
+|------|---------|-------|
+| Interval | `@every 30s` | minimum `1s`; no time zone |
+| Five-field cron | `0 3 * * *` | normalized to six-field by prepending `0` seconds |
+| Six-field cron | `0 */5 * * * *` | seconds-first (`sec min hour dom mon dow`) |
+| Named alias | `@daily` | also `@hourly`, `@weekly`, `@monthly`, `@yearly` |
+
+> Both five-field and six-field cron expressions are accepted (mono v0.0.8+).
+> Use six fields for sub-minute precision. See `examples/cron-service.go`.
 
 ### Typed Service Registration (Recommended)
 
@@ -570,6 +617,7 @@ Working examples in `examples/`:
 - **`examples/basic-module.go`** - Minimal module implementation
 - **`examples/service-provider.go`** - Service provider with RequestReply
 - **`examples/queue-group-service.go`** - QueueGroupService with QGHP pattern
+- **`examples/cron-service.go`** - CronService scheduled jobs (interval, cron, alias)
 - **`examples/multi-module.go`** - Multi-module with dependencies and service adapters
 - **`examples/event-emitter.go`** - Event emitter with consumer
 - **`examples/plugin-module.go`** - Custom plugin implementation
@@ -589,6 +637,7 @@ Real-world implementations in [mono-recipes](https://github.com/go-monolith/mono
 | Project | Demonstrates |
 |---------|--------------|
 | `background-jobs-demo` | QueueGroupService with multiple workers |
+| `cron-scheduler-demo` | CronService scheduled jobs (interval, cron, alias) |
 | `file-upload-demo` | fs-jetstream plugin with Gin HTTP server |
 | `url-shortener-demo` | kv-jetstream plugin with events and Fiber |
 | `jwt-auth-demo` | Authentication with Fiber and dependencies |

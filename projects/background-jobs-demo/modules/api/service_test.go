@@ -64,6 +64,10 @@ func (m *mockServiceContainer) RegisterStreamConsumerService(_ string, _ mono.St
 	return nil
 }
 
+func (m *mockServiceContainer) RegisterCronService(_ string, _ mono.CronServiceConfig, _ mono.CronHandler) error {
+	return nil
+}
+
 func (m *mockServiceContainer) GetChannelService(_ string, _ string) (chan *mono.Msg, chan *mono.Msg, error) {
 	return nil, nil, nil
 }

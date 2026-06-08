@@ -17,6 +17,7 @@ type ServiceContainer interface {
     RegisterRequestReplyService(name string, handler RequestReplyHandler) error
     RegisterQueueGroupService(name string, pairs ...QGHP) error
     RegisterStreamConsumerService(name string, config StreamConsumerConfig, handler StreamConsumerHandler) error
+    RegisterCronService(name string, config CronServiceConfig, handler CronHandler) error
 
     // Get services (consumer side)
     GetChannelService(serviceName string, consumerModule string) (in chan *Msg, out chan *Msg, err error)
@@ -264,6 +265,76 @@ func (m *AuditModule) handleAuditEvents(
 | `msg.NakWithDelay(d)` | Retry after delay |
 | `msg.Term()` | Stop redelivery (poison message) |
 | `msg.InProgress()` | Extend processing time |
+
+### 5. Cron Services
+
+Server-side scheduled execution via the embedded NATS JetStream message
+scheduler (nats-server v2.14+). You register a schedule and a handler; the
+framework provisions the schedule on the server and invokes the handler on each
+occurrence. Unlike the other service types, a CronService is **not invoked by
+other modules** — there is no `GetCronService`; the scheduler drives it.
+
+**Characteristics:**
+- Schedule lives server-side: exactly one occurrence fires per tick across a cluster (no client ticker, no leader election)
+- At-least-once delivery via a durable pull consumer, with framework-owned ack
+- Survives restarts (the schedule is persisted; the server skips ahead instead of replaying a backlog)
+- **Requires JetStream** — create the app with `mono.WithJetStreamStorageDir(dir)`
+
+**Handler Signature:**
+
+```go
+// Return nil to Ack the occurrence, or a non-nil error to Nak it (redelivered
+// up to the consumer's MaxDeliver). The handler must NOT call msg.Ack()/Nak().
+type CronHandler func(ctx context.Context, msg *Msg) error
+```
+
+**Config (`CronServiceConfig`):**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `Schedule` | `string` | Required. Cron expression, named alias, or interval |
+| `Payload` | `[]byte` | Static body delivered each tick (exclusive with `SourceSubject`) |
+| `SourceSubject` | `string` | Deliver the last message on this subject instead of `Payload` (downsampling) |
+| `TimeZone` | `string` | IANA tz for cron evaluation; default UTC |
+| `TTL` | `time.Duration` | Per-occurrence TTL (≥ 1s); drops stale ticks |
+| `Deprecated` | `bool` | Purge the schedule + stop the consumer while keeping the registration (phase one of safe two-phase retirement) |
+
+**Schedule formats:**
+
+| Form | Example | Notes |
+|------|---------|-------|
+| Interval | `@every 30s` | minimum `1s`; no time zone |
+| Five-field cron | `0 3 * * *` | normalized to six-field by prepending a `0` seconds field (mono v0.0.8+) |
+| Six-field cron | `0 */5 * * * *` | seconds-first: `sec min hour dom mon dow` |
+| Named alias | `@daily` | also `@hourly`, `@weekly`, `@monthly`, `@yearly` |
+
+**Registration:**
+
+```go
+func (m *MaintenanceModule) RegisterServices(container mono.ServiceContainer) error {
+    return container.RegisterCronService(
+        "cleanup",
+        mono.CronServiceConfig{
+            Schedule: "0 3 * * *", // daily at 03:00 (normalized to "0 0 3 * * *")
+            TimeZone: "UTC",
+            TTL:      1 * time.Hour,
+            Payload:  []byte(`{"event":"nightly-cleanup"}`),
+        },
+        m.handleCleanup,
+    )
+}
+
+func (m *MaintenanceModule) handleCleanup(ctx context.Context, msg *mono.Msg) error {
+    // Runs on each occurrence; msg.Data carries the configured Payload.
+    if err := m.purgeExpiredRecords(ctx); err != nil {
+        return err // Nak — the server redelivers up to MaxDeliver
+    }
+    return nil // Ack
+}
+```
+
+**Consumption:** none — a CronService has no client side. To trigger work from
+another module on demand, use a QueueGroupService or RequestReply instead.
 
 ## Dependency Resolution
 

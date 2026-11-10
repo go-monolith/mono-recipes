@@ -369,9 +369,34 @@ Circular dependencies are rejected at startup:
 // Error: circular dependency detected: order -> payment -> order
 ```
 
+## Typed Service Contracts (Recommended, v0.1.0+)
+
+Declare a service once in the provider's `contract` sub-package and use the same value on both sides:
+
+```go
+// payment/contract/contract.go
+var Process = helper.RequestReplyService[PaymentRequest, PaymentResponse]("payment", "process-payment")
+
+// Provider
+func (m *PaymentModule) RegisterServices(container mono.ServiceContainer) error {
+    return contract.Process.Register(container, m.process)
+}
+
+// Consumer
+resp, err := paymentcontract.Process.Call(ctx, m.paymentContainer, paymentcontract.PaymentRequest{Amount: amount})
+```
+
+| Kind | Constructor | Provider | Consumer |
+|------|-------------|----------|----------|
+| Request-Reply | `helper.RequestReplyService[Req, Resp]` | `Register(container, handler, opts...)` | `Call(ctx, container, req)` |
+| Queue Group | `helper.QueueGroupService[T]` | `Register(container, pairs...)` | `Send(ctx, container, payload)` |
+| Stream Consumer | `helper.StreamConsumerService[T]` | `Register(container, config, handler)` | `Publish(ctx, container, payload)` |
+
+Declare what a module calls with `ConsumeServices()` so the framework validates it at startup. See `module-boundaries.md` for the full pattern.
+
 ## Type-Safe Service Helpers
 
-Use helper functions for type-safe service calls:
+The string-based helpers are the lower-level form of the contracts above:
 
 ```go
 import "github.com/go-monolith/mono/pkg/helper"
@@ -402,7 +427,30 @@ func (m *OrderModule) processPayment(ctx context.Context, amount float64) error 
 
 ## Service Adapter Pattern
 
-Create typed adapters for cleaner inter-module communication:
+**Recommended (v0.1.0+):** the consumer owns the port and the adapter, and the adapter calls the provider's contract. The consumer imports only `<provider>/contract`.
+
+```go
+// shipping/ports.go
+type OrderPort interface {
+    GetOrder(ctx context.Context, req ordercontract.GetOrderRequest) (ordercontract.Order, error)
+}
+
+// shipping/adapter.go
+type orderAdapter struct{ container mono.ServiceContainer }
+
+func (a orderAdapter) GetOrder(ctx context.Context, req ordercontract.GetOrderRequest) (ordercontract.Order, error) {
+    return ordercontract.GetOrder.Call(ctx, a.container, req)
+}
+
+// shipping/module.go
+func (m *ShippingModule) SetDependencyServiceContainer(module string, container mono.ServiceContainer) {
+    if module == "order" {
+        m.orders = orderAdapter{container: container}
+    }
+}
+```
+
+**Older form:** the provider ships the adapter and consumers import the provider's package. It still works, but it couples consumers to the provider package:
 
 **Adapter Interface (`adapter.go`):**
 
@@ -501,6 +549,8 @@ Examples:
 - Declare all dependencies explicitly
 - Handle errors with context (`%w` verb)
 - Use appropriate service type for use case
+- Register and call through typed contracts in `<module>/contract`
+- Only look services up on a dependency's container (it is a read-only view since v0.1.0)
 
 ### Don't
 
@@ -508,3 +558,5 @@ Examples:
 - Create circular dependencies
 - Share mutable state (use messages)
 - Ignore the ServiceContainer
+- Register or unregister on a dependency's container
+- Request another module's `services.<module>.<service>` subject on the event bus

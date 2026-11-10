@@ -174,6 +174,31 @@ func (m *OrderModule) SetDependencyServiceContainer(
 
 **When to use:** When consuming services provided by dependency modules.
 
+Since v0.1.0 the container received here is a **read-only view** of the dependency's container: look services up on it, never register on it. Likewise the bus received in `SetEventBus` is scoped to the module. See `module-boundaries.md`.
+
+### ServiceConsumerModule
+
+Declare the service contracts the module calls. The framework validates the list at startup (v0.1.0+).
+
+```go
+import "github.com/go-monolith/mono/pkg/types" // no mono.* alias yet
+
+type ServiceConsumerModule interface {
+    ConsumeServices() []types.BaseServiceDefinition
+}
+```
+
+```go
+func (m *OrderModule) ConsumeServices() []types.BaseServiceDefinition {
+    return []types.BaseServiceDefinition{
+        inventorycontract.CheckStock.ToBase(),
+        paymentcontract.Process.ToBase(),
+    }
+}
+```
+
+Each contract must name a module in `Dependencies()` (or a plugin) that registered the service with the same kind. Otherwise `Start` fails with `ErrMissingDependency`, `ErrServiceNotFound` or `ErrServiceContractMismatch`.
+
 ### EventEmitterModule
 
 Declare events the module emits (extends EventBusAwareModule):

@@ -1,7 +1,7 @@
 ---
 name: mono-dev
-description: This skill should be used when the user asks to "create a Mono application", "add a new Mono module", "create a Mono plugin", "create a Mono middleware", "use kv-jetstream plugin", "use fs-jetstream plugin", "create Python client to connect to Mono app", "create Node.js client to connect to Mono app", "add polyglot client for Mono app", "add background jobs in Mono app", "add queue-group workers", "add a cron job in Mono app", "schedule a recurring task", "add a scheduled service", or mentions "mono framework", "MonoApplication", "ServiceContainer", "ChannelService", "RequestReplyService", "QueueGroupService", "StreamConsumerService", "CronService", "RegisterCronService", "CronServiceConfig", "EventBus", "EventRegistry", "EventEmitter", "EventConsumer", "EventStreamConsumer", "PluginModule", "UsePluginModule", "MiddlewareModule", "OnServiceRegistration", "OnModuleLifecycle", "OnOutgoingMessage", "kv-jetstream", "fs-jetstream", "KVStoragePort", "FileStoragePort", "QGHP", "nats.py", "nats.js". Provides best practices for developing modular monolith applications with the go-monolith/mono framework.
-version: 0.5.0
+description: This skill should be used when the user asks to "create a Mono application", "add a new Mono module", "create a Mono plugin", "create a Mono middleware", "use kv-jetstream plugin", "use fs-jetstream plugin", "create Python client to connect to Mono app", "create Node.js client to connect to Mono app", "add polyglot client for Mono app", "add background jobs in Mono app", "add queue-group workers", "define a service contract", "add a contract package", "check module boundaries", "enforce hexagonal architecture", "ports and adapters in Mono", "test a Mono module without NATS", "add a cron job in Mono app", "schedule a recurring task", "add a scheduled service", or mentions "mono framework", "MonoApplication", "ServiceContainer", "ChannelService", "RequestReplyService", "QueueGroupService", "StreamConsumerService", "CronService", "RegisterCronService", "CronServiceConfig", "EventBus", "EventRegistry", "EventEmitter", "EventConsumer", "EventStreamConsumer", "PluginModule", "UsePluginModule", "MiddlewareModule", "OnServiceRegistration", "OnModuleLifecycle", "OnOutgoingMessage", "kv-jetstream", "fs-jetstream", "KVStoragePort", "FileStoragePort", "QGHP", "ServiceConsumerModule", "ConsumeServices", "helper.RequestReplyService", "helper.QueueGroupService", "helper.StreamConsumerService", "BaseServiceDefinition", "WithStrictModuleBoundaries", "ModuleBoundaries", "ErrModuleBoundaryViolation", "monotest", "CheckModule", "nats.py", "nats.js". Provides best practices for developing modular monolith applications with the go-monolith/mono framework.
+version: 0.6.0
 ---
 
 # Mono Framework Development
@@ -111,6 +111,7 @@ Modules can implement optional interfaces for additional capabilities:
 | `ServiceProviderModule` | Register services for other modules |
 | `DependentModule` | Declare dependencies on other modules |
 | `SetDependencyServiceContainer` | Receive dependency service containers |
+| `ServiceConsumerModule` | Declare consumed service contracts, validated at startup (`pkg/types`, v0.1.0+) |
 | `EventEmitterModule` | Declare events the module emits |
 | `EventConsumerModule` | Register event consumer handlers |
 | `HealthCheckableModule` | Report custom health status |
@@ -228,9 +229,28 @@ func (m *MaintenanceModule) handleCleanup(ctx context.Context, msg *mono.Msg) er
 > Both five-field and six-field cron expressions are accepted (mono v0.0.8+).
 > Use six fields for sub-minute precision. See `examples/cron-service.go`.
 
-### Typed Service Registration (Recommended)
+### Typed Service Contracts (Recommended, v0.1.0+)
 
-Use the helper package for type-safe handlers:
+Declare each service once in the provider's `contract` sub-package. The provider registers through it and consumers call through it, so the name, types and encoding are written once. See **Module Boundaries** below.
+
+```go
+// payment/contract/contract.go
+var Process = helper.RequestReplyService[PaymentRequest, PaymentResponse]("payment", "process-payment")
+
+// payment/module.go (provider)
+func (m *PaymentModule) RegisterServices(container mono.ServiceContainer) error {
+    return contract.Process.Register(container, m.process) // typed handler
+}
+
+// order/adapter.go (consumer)
+resp, err := paymentcontract.Process.Call(ctx, m.paymentContainer, paymentcontract.PaymentRequest{Amount: 100})
+```
+
+`helper.QueueGroupService[T]` (`Register`/`Send`) and `helper.StreamConsumerService[T]` (`Register`/`Publish`) follow the same shape.
+
+### Typed Handlers without a Contract
+
+The lower-level helpers still work, for example for a service only polyglot clients call:
 
 ```go
 import "github.com/go-monolith/mono/pkg/helper"
@@ -257,6 +277,8 @@ func (m *Module) handleCalculate(
 ```
 
 ### Consuming Services (Consumer)
+
+Prefer a contract call (above). The string-based helper below is the lower-level form:
 
 ```go
 func (m *OrderModule) Dependencies() []string {
@@ -285,6 +307,62 @@ func (m *OrderModule) processOrder(ctx context.Context) error {
     return err
 }
 ```
+
+## Module Boundaries (Ports and Adapters, v0.1.0+)
+
+The framework can check that modules follow the hexagonal pattern. Full guide: **`references/module-boundaries.md`**. Working code: **`examples/module-boundaries/`**.
+
+**Recommended path:**
+
+1. Give each module a `contract` sub-package: DTOs, typed service definitions, emitted events. It is the only package of the module others import, and it imports only the standard library, `mono/pkg/types` and `mono/pkg/helper`.
+2. Register and call through contracts. No service-name strings in module code.
+3. In consumers, put driven ports in `ports.go` and adapters in `adapter.go`.
+4. Implement `ConsumeServices()` so startup fails fast on a missing or mistyped service.
+5. Add one `monotest.CheckModule` test per module.
+6. Run in the default mode and read `app.ModuleBoundaries()` or the `Stop` log.
+7. Fix what it reports, then enable `mono.WithStrictModuleBoundaries()`.
+
+```go
+import "github.com/go-monolith/mono/pkg/types" // no mono.* alias yet
+
+// Validated when the module starts: the provider must be a declared
+// dependency (or a plugin), have registered the service, with the same kind.
+func (m *OrderModule) ConsumeServices() []types.BaseServiceDefinition {
+    return []types.BaseServiceDefinition{
+        inventorycontract.CheckStock.ToBase(),
+        paymentcontract.Process.ToBase(),
+    }
+}
+```
+
+**At runtime** the container from `SetDependencyServiceContainer` is a read-only view, and the bus from `SetEventBus` is scoped to the module. Four violations are detected:
+
+| Kind | Cause |
+|------|-------|
+| `register-on-dependency` | Mutating a dependency's container |
+| `channel-consumer-mismatch` | `GetChannelService` under another module's name |
+| `undeclared-service-subject` | Raw publish/request to `services.<undeclared-module>.*` |
+| `foreign-service-subscription` | Subscribing to another module's service subject |
+
+By default they are warned once and listed in `app.ModuleBoundaries()`. With `mono.WithStrictModuleBoundaries()` they fail with `ErrModuleBoundaryViolation`.
+
+**In tests**, `monotest` runs a module without NATS:
+
+```go
+func TestOrderModuleConformance(t *testing.T) {
+    inventory := monotest.NewContainer("inventory", monotest.NewEventBus())
+    // register stand-in services via the provider's contract or monotest.StubRequestReply
+
+    monotest.CheckModule(t, order.NewModule(),
+        monotest.WithDependency("inventory", inventory),
+        monotest.WithExercise(func(ctx context.Context, h *monotest.Harness) error {
+            _, err := contract.PlaceOrder.Call(ctx, h.Container(), contract.PlaceOrderRequest{ProductID: "laptop", Quantity: 1})
+            return err
+        }))
+}
+```
+
+Not checked: imports between module packages, modules handed each other's objects directly, `app.Services(name)` (host code only), and JetStream publishes.
 
 ## Event-Driven Communication
 
@@ -368,11 +446,16 @@ my-app/
 │   │   ├── handlers.go
 │   │   └── routes.go
 │   ├── user/                  # Business module with database (SOLID principles)
-│   │   ├── module.go          # Module implementation
+│   │   ├── contract/          # Published port: the only package other modules import
+│   │   │   ├── contract.go    # DTOs + typed service contracts
+│   │   │   └── events.go      # Events this module emits
+│   │   ├── module.go          # Module implementation, ConsumeServices()
+│   │   ├── module_test.go     # monotest.CheckModule conformance test
+│   │   ├── ports.go           # Driven ports this module needs
+│   │   ├── adapter.go         # Adapters over other modules' contracts
 │   │   ├── service.go         # Service handlers
 │   │   ├── service_test.go    # Unit tests
-│   │   ├── types.go           # Domain types
-│   │   ├── events.go          # Event definitions
+│   │   ├── types.go           # Internal domain types
 │   │   ├── repository.go      # Repository interface
 │   │   └── db/                # Module-owned database (sqlc)
 │   │       ├── schema.sql     # Schema owned by this module
@@ -409,6 +492,9 @@ my-app/
 - Use services for point-to-point calls (caller knows provider)
 - Use events for broadcast/loose coupling (emitter doesn't know consumers)
 - Declare dependencies explicitly via `DependentModule`
+- Publish a `contract` sub-package per module; register and call services through typed contracts
+- Declare consumed contracts with `ConsumeServices()` and add a `monotest.CheckModule` test per module
+- Enable `mono.WithStrictModuleBoundaries()` once `app.ModuleBoundaries()` is clean
 - Handle errors explicitly, wrap with context using `%w`
 - Use structured logging with `log/slog` or pass in `app.Logger()` in module constructor
 - Use compile-time interface checks: `var _ mono.Module = (*MyModule)(nil)`
@@ -418,6 +504,8 @@ my-app/
 - Call module.Start() or module.Stop() directly (this is handled by framework)
 - Define & call modules's function directly - use services or events
 - Create circular dependencies - refactor or use events
+- Import another module's package other than its `contract`
+- Register on a dependency's container, or request another module's `services.*` subject on the event bus
 - Store global state - use framework's dependency injection
 - Panic in modules - return errors instead
 - Share mutable state - communicate via messages
@@ -602,6 +690,7 @@ For detailed patterns and implementation examples:
 
 - **`references/modules.md`** - Module interface patterns and lifecycle
 - **`references/services.md`** - Service registration and consumption
+- **`references/module-boundaries.md`** - Contracts, ports and adapters, `ConsumeServices`, boundary report, strict mode, `monotest`
 - **`references/events.md`** - Event emitter and consumer patterns
 - **`references/plugins.md`** - Plugin creation and built-in plugins
 - **`references/middleware.md`** - Middleware hooks and built-in middleware
@@ -618,7 +707,8 @@ Working examples in `examples/`:
 - **`examples/service-provider.go`** - Service provider with RequestReply
 - **`examples/queue-group-service.go`** - QueueGroupService with QGHP pattern
 - **`examples/cron-service.go`** - CronService scheduled jobs (interval, cron, alias)
-- **`examples/multi-module.go`** - Multi-module with dependencies and service adapters
+- **`examples/multi-module.go`** - Multi-module with dependencies and service adapters (string-based helpers)
+- **`examples/module-boundaries/`** - Recommended layout: contract packages, ports and adapters, `ConsumeServices`, `monotest.CheckModule` test
 - **`examples/event-emitter.go`** - Event emitter with consumer
 - **`examples/plugin-module.go`** - Custom plugin implementation
 - **`examples/kv-jetstream-usecase.go`** - Sessions, counters, distributed locks

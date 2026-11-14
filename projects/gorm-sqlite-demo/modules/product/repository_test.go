@@ -42,7 +42,7 @@ func TestRepository_Create(t *testing.T) {
 		UpdatedAt:   time.Now(),
 	}
 
-	err := repo.Create(product)
+	err := repo.Create(t.Context(), product)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -80,7 +80,7 @@ func TestRepository_FindByID(t *testing.T) {
 	}
 
 	t.Run("existing product", func(t *testing.T) {
-		found, err := repo.FindByID(product.ID)
+		found, err := repo.FindByID(t.Context(), product.ID)
 		if err != nil {
 			t.Fatalf("FindByID() error = %v", err)
 		}
@@ -94,7 +94,7 @@ func TestRepository_FindByID(t *testing.T) {
 	})
 
 	t.Run("non-existent product", func(t *testing.T) {
-		_, err := repo.FindByID("non-existent-id")
+		_, err := repo.FindByID(t.Context(), "non-existent-id")
 		if err == nil {
 			t.Error("expected error for non-existent product, got nil")
 		}
@@ -109,7 +109,7 @@ func TestRepository_FindAll(t *testing.T) {
 	repo := NewRepository(db)
 
 	t.Run("empty database", func(t *testing.T) {
-		products, err := repo.FindAll()
+		products, err := repo.FindAll(t.Context())
 		if err != nil {
 			t.Fatalf("FindAll() error = %v", err)
 		}
@@ -134,7 +134,7 @@ func TestRepository_FindAll(t *testing.T) {
 	}
 
 	t.Run("with products", func(t *testing.T) {
-		products, err := repo.FindAll()
+		products, err := repo.FindAll(t.Context())
 		if err != nil {
 			t.Fatalf("FindAll() error = %v", err)
 		}
@@ -166,7 +166,7 @@ func TestRepository_Update(t *testing.T) {
 		product.Name = "Updated Name"
 		product.Price = 29.99
 
-		err := repo.Update(product)
+		err := repo.Update(t.Context(), product)
 		if err != nil {
 			t.Fatalf("Update() error = %v", err)
 		}
@@ -191,7 +191,7 @@ func TestRepository_Update(t *testing.T) {
 			Name:  "Should Not Work",
 			Price: 99.99,
 		}
-		err := repo.Update(nonExistent)
+		err := repo.Update(t.Context(), nonExistent)
 		if err == nil {
 			t.Error("expected error for non-existent product, got nil")
 		}
@@ -219,7 +219,7 @@ func TestRepository_Delete(t *testing.T) {
 	}
 
 	t.Run("delete existing product", func(t *testing.T) {
-		err := repo.Delete(product.ID)
+		err := repo.Delete(t.Context(), product.ID)
 		if err != nil {
 			t.Fatalf("Delete() error = %v", err)
 		}
@@ -235,14 +235,14 @@ func TestRepository_Delete(t *testing.T) {
 		}
 
 		// Verify product is not returned by normal query
-		_, err = repo.FindByID(product.ID)
+		_, err = repo.FindByID(t.Context(), product.ID)
 		if err != ErrNotFound {
 			t.Errorf("expected ErrNotFound after delete, got %v", err)
 		}
 	})
 
 	t.Run("delete non-existent product", func(t *testing.T) {
-		err := repo.Delete("non-existent-id")
+		err := repo.Delete(t.Context(), "non-existent-id")
 		if err == nil {
 			t.Error("expected error for non-existent product, got nil")
 		}

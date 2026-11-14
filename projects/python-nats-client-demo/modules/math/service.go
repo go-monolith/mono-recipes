@@ -6,6 +6,8 @@ import (
 	gomath "math"
 
 	"github.com/go-monolith/mono"
+
+	"github.com/example/python-nats-client-demo/modules/math/contract"
 )
 
 // Validation errors.
@@ -16,38 +18,38 @@ var (
 )
 
 // calculate handles the math.calculate service request.
-func (m *MathModule) calculate(ctx context.Context, req CalculateRequest, _ *mono.Msg) (CalculateResponse, error) {
+func (m *MathModule) calculate(_ context.Context, req contract.CalculateRequest, _ *mono.Msg) (contract.CalculateResponse, error) {
 	result, err := performOperation(req.Operation, req.A, req.B)
 	if err != nil {
-		return CalculateResponse{
+		return contract.CalculateResponse{
 			Operation: req.Operation,
 			Error:     err.Error(),
 		}, nil // Return error in response, not as Go error
 	}
 
-	return CalculateResponse{
+	return contract.CalculateResponse{
 		Result:    result,
 		Operation: req.Operation,
 	}, nil
 }
 
 // performOperation executes the math operation.
-func performOperation(op Operation, a, b float64) (float64, error) {
+func performOperation(op contract.Operation, a, b float64) (float64, error) {
 	switch op {
-	case OpAdd:
+	case contract.OpAdd:
 		return a + b, nil
-	case OpSubtract:
+	case contract.OpSubtract:
 		return a - b, nil
-	case OpMultiply:
+	case contract.OpMultiply:
 		return a * b, nil
-	case OpDivide:
+	case contract.OpDivide:
 		if b == 0 {
 			return 0, errDivisionByZero
 		}
 		return a / b, nil
-	case OpPower:
+	case contract.OpPower:
 		return gomath.Pow(a, b), nil
-	case OpSqrt:
+	case contract.OpSqrt:
 		if a < 0 {
 			return 0, errNegativeSqrt
 		}

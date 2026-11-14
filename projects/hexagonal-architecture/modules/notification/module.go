@@ -1,3 +1,6 @@
+// Package notification is a driven adapter that reacts to the task module's
+// domain events. It looks the events up through the emitter's contract
+// (task/contract), never by name, and imports nothing else of the task module.
 package notification
 
 import (
@@ -7,9 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/hexagonal-architecture/events"
 	"github.com/go-monolith/mono"
 	"github.com/go-monolith/mono/pkg/helper"
+
+	taskcontract "github.com/example/hexagonal-architecture/modules/task/contract"
 )
 
 // NotificationLog represents a logged notification.
@@ -28,9 +32,12 @@ type NotificationModule struct {
 	mu            sync.RWMutex
 }
 
-var _ mono.Module = (*NotificationModule)(nil)
-var _ mono.EventConsumerModule = (*NotificationModule)(nil)
+var (
+	_ mono.Module              = (*NotificationModule)(nil)
+	_ mono.EventConsumerModule = (*NotificationModule)(nil)
+)
 
+// NewModule creates the notification module.
 func NewModule() *NotificationModule {
 	return &NotificationModule{
 		notifications: make([]NotificationLog, 0),
@@ -42,13 +49,13 @@ func (m *NotificationModule) Name() string {
 }
 
 func (m *NotificationModule) RegisterEventConsumers(registry mono.EventRegistry) error {
-	if err := helper.RegisterTypedEventConsumer(registry, events.TaskCreatedV1, m.handleTaskCreated, m); err != nil {
+	if err := helper.RegisterTypedEventConsumer(registry, taskcontract.TaskCreatedV1, m.handleTaskCreated, m); err != nil {
 		return fmt.Errorf("failed to register TaskCreated consumer: %w", err)
 	}
-	if err := helper.RegisterTypedEventConsumer(registry, events.TaskCompletedV1, m.handleTaskCompleted, m); err != nil {
+	if err := helper.RegisterTypedEventConsumer(registry, taskcontract.TaskCompletedV1, m.handleTaskCompleted, m); err != nil {
 		return fmt.Errorf("failed to register TaskCompleted consumer: %w", err)
 	}
-	if err := helper.RegisterTypedEventConsumer(registry, events.TaskDeletedV1, m.handleTaskDeleted, m); err != nil {
+	if err := helper.RegisterTypedEventConsumer(registry, taskcontract.TaskDeletedV1, m.handleTaskDeleted, m); err != nil {
 		return fmt.Errorf("failed to register TaskDeleted consumer: %w", err)
 	}
 
@@ -56,19 +63,19 @@ func (m *NotificationModule) RegisterEventConsumers(registry mono.EventRegistry)
 	return nil
 }
 
-func (m *NotificationModule) handleTaskCreated(_ context.Context, event events.TaskCreatedEvent, _ *mono.Msg) error {
+func (m *NotificationModule) handleTaskCreated(_ context.Context, event taskcontract.TaskCreatedEvent, _ *mono.Msg) error {
 	log.Printf("[notification] Task created: %s - %s", event.TaskID, event.Title)
 	m.logNotification(event.TaskID, "task_created", fmt.Sprintf("New task '%s' created for user %s", event.Title, event.UserID))
 	return nil
 }
 
-func (m *NotificationModule) handleTaskCompleted(_ context.Context, event events.TaskCompletedEvent, _ *mono.Msg) error {
+func (m *NotificationModule) handleTaskCompleted(_ context.Context, event taskcontract.TaskCompletedEvent, _ *mono.Msg) error {
 	log.Printf("[notification] Task completed: %s by user %s", event.TaskID, event.UserID)
 	m.logNotification(event.TaskID, "task_completed", fmt.Sprintf("Task %s completed!", event.TaskID))
 	return nil
 }
 
-func (m *NotificationModule) handleTaskDeleted(_ context.Context, event events.TaskDeletedEvent, _ *mono.Msg) error {
+func (m *NotificationModule) handleTaskDeleted(_ context.Context, event taskcontract.TaskDeletedEvent, _ *mono.Msg) error {
 	log.Printf("[notification] Task deleted: %s by user %s", event.TaskID, event.UserID)
 	m.logNotification(event.TaskID, "task_deleted", fmt.Sprintf("Task %s deleted", event.TaskID))
 	return nil

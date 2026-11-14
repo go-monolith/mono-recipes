@@ -1,323 +1,104 @@
-package api
+package api_test
 
 import (
 	"context"
-	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/go-monolith/mono/monotest"
 	"github.com/go-monolith/mono/pkg/types"
+
+	"github.com/example/rate-limiting-middleware/modules/api"
+	"github.com/example/rate-limiting-middleware/modules/api/contract"
 )
 
-// mockLogger implements types.Logger for testing
-type mockLogger struct{}
+// nopLogger discards module logs.
+type nopLogger struct{}
 
-func (m *mockLogger) Debug(_ string, _ ...any) {}
-func (m *mockLogger) Info(_ string, _ ...any)  {}
-func (m *mockLogger) Warn(_ string, _ ...any)  {}
-func (m *mockLogger) Error(_ string, _ ...any) {}
-func (m *mockLogger) With(_ ...any) types.Logger {
-	return m
-}
-func (m *mockLogger) WithModule(_ string) types.Logger {
-	return m
-}
-func (m *mockLogger) WithError(_ error) types.Logger {
-	return m
-}
+var _ types.Logger = nopLogger{}
 
-func newMockLogger() types.Logger {
-	return &mockLogger{}
-}
+func (nopLogger) Debug(string, ...any)             {}
+func (nopLogger) Info(string, ...any)              {}
+func (nopLogger) Warn(string, ...any)              {}
+func (nopLogger) Error(string, ...any)             {}
+func (l nopLogger) With(...any) types.Logger       { return l }
+func (l nopLogger) WithModule(string) types.Logger { return l }
+func (l nopLogger) WithError(error) types.Logger   { return l }
 
-func TestNewModule(t *testing.T) {
-	m := NewModule(newMockLogger())
-
-	if m == nil {
-		t.Fatal("NewModule returned nil")
-	}
-	if m.logger == nil {
-		t.Error("expected logger to be set")
-	}
-}
-
-func TestModule_Name(t *testing.T) {
-	m := NewModule(newMockLogger())
-
-	if name := m.Name(); name != "api" {
-		t.Errorf("Name() = %q, want 'api'", name)
-	}
-}
-
-func TestModule_StartStop(t *testing.T) {
-	m := NewModule(newMockLogger())
-	ctx := context.Background()
-
-	// Start should work
-	if err := m.Start(ctx); err != nil {
-		t.Errorf("Start() error = %v", err)
-	}
-
-	// startTime should be set
-	if m.startTime.IsZero() {
-		t.Error("expected startTime to be set after Start()")
-	}
-
-	// Stop should work
-	if err := m.Stop(ctx); err != nil {
-		t.Errorf("Stop() error = %v", err)
-	}
-}
-
-func TestModule_handleGetData(t *testing.T) {
-	m := NewModule(newMockLogger())
-	ctx := context.Background()
-	_ = m.Start(ctx)
-
-	msg := &types.Msg{}
-	resp, err := m.handleGetData(ctx, msg)
-
-	if err != nil {
-		t.Fatalf("handleGetData() error = %v", err)
-	}
-
-	var data DataResponse
-	if err := json.Unmarshal(resp, &data); err != nil {
-		t.Fatalf("failed to unmarshal response: %v", err)
-	}
-
-	if data.ID == "" {
-		t.Error("expected non-empty ID")
-	}
-	if data.Name != "Sample Data" {
-		t.Errorf("expected Name 'Sample Data', got %q", data.Name)
-	}
-	if data.Value != 42 {
-		t.Errorf("expected Value 42, got %d", data.Value)
-	}
-	if data.Timestamp.IsZero() {
-		t.Error("expected non-zero Timestamp")
-	}
-}
-
-func TestModule_handleCreateOrder(t *testing.T) {
-	m := NewModule(newMockLogger())
-	ctx := context.Background()
-	_ = m.Start(ctx)
-
-	tests := []struct {
-		name        string
-		request     OrderRequest
-		wantErr     bool
-		errContains string
-	}{
-		{
-			name: "valid order",
-			request: OrderRequest{
-				ProductID: "prod-123",
-				Quantity:  2,
-				Price:     29.99,
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing product ID",
-			request: OrderRequest{
-				ProductID: "",
-				Quantity:  1,
-				Price:     10.00,
-			},
-			wantErr:     true,
-			errContains: "product_id is required",
-		},
-		{
-			name: "zero quantity",
-			request: OrderRequest{
-				ProductID: "prod-123",
-				Quantity:  0,
-				Price:     10.00,
-			},
-			wantErr:     true,
-			errContains: "quantity must be positive",
-		},
-		{
-			name: "negative quantity",
-			request: OrderRequest{
-				ProductID: "prod-123",
-				Quantity:  -1,
-				Price:     10.00,
-			},
-			wantErr:     true,
-			errContains: "quantity must be positive",
-		},
-		{
-			name: "zero price",
-			request: OrderRequest{
-				ProductID: "prod-123",
-				Quantity:  1,
-				Price:     0,
-			},
-			wantErr:     true,
-			errContains: "price must be positive",
-		},
-		{
-			name: "negative price",
-			request: OrderRequest{
-				ProductID: "prod-123",
-				Quantity:  1,
-				Price:     -10.00,
-			},
-			wantErr:     true,
-			errContains: "price must be positive",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			reqData, _ := json.Marshal(tt.request)
-			msg := &types.Msg{Data: reqData}
-
-			resp, err := m.handleCreateOrder(ctx, msg)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error, got nil")
-					return
-				}
-				if tt.errContains != "" && err.Error() != tt.errContains {
-					t.Errorf("error = %q, want containing %q", err.Error(), tt.errContains)
-				}
-				return
+// TestAPIModuleConformance is the module boundary check. The exercise calls
+// every provided contract. The rate limiting middleware is not part of it:
+// monotest has no middleware chain, and the middleware has its own tests.
+func TestAPIModuleConformance(t *testing.T) {
+	monotest.CheckModule(t, api.NewModule(nopLogger{}),
+		monotest.WithExercise(func(ctx context.Context, h *monotest.Harness) error {
+			if _, err := contract.GetData.Call(ctx, h.Container(), contract.GetDataRequest{}); err != nil {
+				return err
 			}
+			if _, err := contract.CreateOrder.Call(ctx, h.Container(),
+				contract.OrderRequest{ProductID: "prod-123", Quantity: 2, Price: 29.99}); err != nil {
+				return err
+			}
+			_, err := contract.GetStatus.Call(ctx, h.Container(), contract.GetStatusRequest{})
+			return err
+		}))
+}
 
+func startHarness(t *testing.T) *monotest.Harness {
+	t.Helper()
+	h := monotest.New(t, api.NewModule(nopLogger{}), monotest.Strict())
+	if err := h.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = h.Stop(context.Background()) })
+	return h
+}
+
+// TestCreateOrderThroughContract checks the response and that a validation
+// error reaches the caller as a service error.
+func TestCreateOrderThroughContract(t *testing.T) {
+	h := startHarness(t)
+	ctx := context.Background()
+
+	order, err := contract.CreateOrder.Call(ctx, h.Container(),
+		contract.OrderRequest{ProductID: "prod-123", Quantity: 2, Price: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if order.Total != 20 || order.Status != "pending" || order.OrderID == "" {
+		t.Errorf("unexpected order: %+v", order)
+	}
+
+	_, err = contract.CreateOrder.Call(ctx, h.Container(), contract.OrderRequest{Quantity: 1, Price: 1})
+	if err == nil || !strings.Contains(err.Error(), "product_id is required") {
+		t.Errorf("err = %v, want product_id is required", err)
+	}
+}
+
+// TestRequestBodies checks what the services accept on the wire: an empty body
+// for the parameterless services, and JSON only for create-order.
+func TestRequestBodies(t *testing.T) {
+	h := startHarness(t)
+	bus := h.EventBus()
+	ctx := context.Background()
+
+	for _, subject := range []string{contract.GetData.Subject(), contract.GetStatus.Subject()} {
+		for _, body := range []string{"", "{}"} {
+			msg, err := bus.RequestWithContext(ctx, subject, []byte(body))
 			if err != nil {
-				t.Fatalf("handleCreateOrder() error = %v", err)
+				t.Fatalf("%s %q: %v", subject, body, err)
 			}
-
-			var order OrderResponse
-			if err := json.Unmarshal(resp, &order); err != nil {
-				t.Fatalf("failed to unmarshal response: %v", err)
+			if !strings.HasPrefix(string(msg.Data), "{") {
+				t.Errorf("%s %q: reply %q is not a JSON object", subject, body, msg.Data)
 			}
-
-			if order.OrderID == "" {
-				t.Error("expected non-empty OrderID")
-			}
-			if order.ProductID != tt.request.ProductID {
-				t.Errorf("expected ProductID %q, got %q", tt.request.ProductID, order.ProductID)
-			}
-			if order.Quantity != tt.request.Quantity {
-				t.Errorf("expected Quantity %d, got %d", tt.request.Quantity, order.Quantity)
-			}
-			expectedTotal := float64(tt.request.Quantity) * tt.request.Price
-			if order.Total != expectedTotal {
-				t.Errorf("expected Total %.2f, got %.2f", expectedTotal, order.Total)
-			}
-			if order.Status != "pending" {
-				t.Errorf("expected Status 'pending', got %q", order.Status)
-			}
-			if order.CreatedAt.IsZero() {
-				t.Error("expected non-zero CreatedAt")
-			}
-		})
+		}
 	}
-}
 
-func TestModule_handleCreateOrder_InvalidJSON(t *testing.T) {
-	m := NewModule(newMockLogger())
-	ctx := context.Background()
-	_ = m.Start(ctx)
-
-	msg := &types.Msg{Data: []byte("invalid json")}
-	_, err := m.handleCreateOrder(ctx, msg)
-
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
-}
-
-func TestModule_handleGetStatus(t *testing.T) {
-	m := NewModule(newMockLogger())
-	ctx := context.Background()
-	_ = m.Start(ctx)
-
-	msg := &types.Msg{}
-	resp, err := m.handleGetStatus(ctx, msg)
-
+	msg, err := bus.RequestWithContext(ctx, contract.CreateOrder.Subject(), []byte("invalid json"))
 	if err != nil {
-		t.Fatalf("handleGetStatus() error = %v", err)
+		t.Fatal(err)
 	}
-
-	var status StatusResponse
-	if err := json.Unmarshal(resp, &status); err != nil {
-		t.Fatalf("failed to unmarshal response: %v", err)
-	}
-
-	if status.Service != "rate-limiting-demo" {
-		t.Errorf("expected Service 'rate-limiting-demo', got %q", status.Service)
-	}
-	if status.Status != "healthy" {
-		t.Errorf("expected Status 'healthy', got %q", status.Status)
-	}
-	if status.Uptime == "" {
-		t.Error("expected non-empty Uptime")
-	}
-	if status.Timestamp.IsZero() {
-		t.Error("expected non-zero Timestamp")
-	}
-}
-
-func TestModule_Health(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("before start", func(t *testing.T) {
-		m := NewModule(newMockLogger())
-
-		health := m.Health(ctx)
-
-		if health.Healthy {
-			t.Error("expected Healthy=false before Start()")
-		}
-		if health.Message != "not started" {
-			t.Errorf("expected Message 'not started', got %q", health.Message)
-		}
-	})
-
-	t.Run("after start", func(t *testing.T) {
-		m := NewModule(newMockLogger())
-		_ = m.Start(ctx)
-
-		health := m.Health(ctx)
-
-		if !health.Healthy {
-			t.Error("expected Healthy=true after Start()")
-		}
-		if health.Message != "operational" {
-			t.Errorf("expected Message 'operational', got %q", health.Message)
-		}
-		if health.Details == nil {
-			t.Error("expected non-nil Details")
-		}
-		if _, ok := health.Details["uptime"]; !ok {
-			t.Error("expected 'uptime' in Details")
-		}
-	})
-}
-
-func TestServiceConstants(t *testing.T) {
-	tests := []struct {
-		name     string
-		constant string
-		want     string
-	}{
-		{"ServiceGetData", ServiceGetData, "get-data"},
-		{"ServiceCreateOrder", ServiceCreateOrder, "create-order"},
-		{"ServiceGetStatus", ServiceGetStatus, "get-status"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.constant != tt.want {
-				t.Errorf("%s = %q, want %q", tt.name, tt.constant, tt.want)
-			}
-		})
+	if msg.Header.Get(types.HeaderError) != "true" ||
+		!strings.Contains(msg.Header.Get(types.HeaderErrorMessage), "failed to unmarshal request") {
+		t.Errorf("invalid JSON to create-order: got header %v, data %q; want an unmarshal error reply", msg.Header, msg.Data)
 	}
 }

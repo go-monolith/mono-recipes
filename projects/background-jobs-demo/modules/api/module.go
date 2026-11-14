@@ -1,36 +1,43 @@
-// Package api provides REST API handlers for job management.
+// Package api provides REST API handlers for job management. It holds no job
+// state: it creates and queries jobs on the worker module (their owner)
+// through worker/contract, behind the JobsPort it owns, and imports nothing
+// else of the worker module.
 package api
 
 import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 
-	"github.com/example/background-jobs-demo/domain/job"
 	"github.com/go-monolith/mono"
+	"github.com/go-monolith/mono/pkg/types"
 	"github.com/gofiber/fiber/v2"
+
+	workercontract "github.com/example/background-jobs-demo/modules/worker/contract"
 )
 
 // Module provides the REST API as a mono module.
 type Module struct {
-	app             *fiber.App
-	handler         *Handler
-	service         *Service
-	jobStore        *job.Store
-	workerContainer mono.ServiceContainer
-	port            int
+	app     *fiber.App
+	handler *Handler
+	service *Service
+	jobs    JobsPort
+	port    int
+	addr    string
 }
 
 // Compile-time interface checks.
-var _ mono.Module = (*Module)(nil)
-var _ mono.DependentModule = (*Module)(nil)
+var (
+	_ mono.Module                 = (*Module)(nil)
+	_ mono.DependentModule        = (*Module)(nil)
+	_ types.ServiceConsumerModule = (*Module)(nil) // no mono.* alias in v0.1.1
+)
 
-// NewModule creates a new API module.
-func NewModule(port int, jobStore *job.Store) *Module {
-	return &Module{
-		port:     port,
-		jobStore: jobStore,
-	}
+// NewModule creates a new API module listening on :port. port 0 picks a free
+// port (used by tests).
+func NewModule(port int) *Module {
+	return &Module{port: port}
 }
 
 // Name returns the module name.
@@ -43,15 +50,37 @@ func (m *Module) Dependencies() []string {
 	return []string{"worker"}
 }
 
-// SetDependencyServiceContainer receives the worker module's service container.
+// ConsumeServices declares every worker contract this module calls; the
+// framework validates them at startup.
+func (m *Module) ConsumeServices() []types.BaseServiceDefinition {
+	return []types.BaseServiceDefinition{
+		workercontract.CreateJob.ToBase(),
+		workercontract.GetJob.ToBase(),
+		workercontract.ListJobs.ToBase(),
+	}
+}
+
+// SetDependencyServiceContainer wires the adapter behind JobsPort. The
+// container is a read-only view of the worker module's services.
 func (m *Module) SetDependencyServiceContainer(module string, container mono.ServiceContainer) {
 	if module == "worker" {
-		m.workerContainer = container
+		m.jobs = workerAdapter{container: container}
 	}
 }
 
 // Start initializes and starts the HTTP server.
 func (m *Module) Start(_ context.Context) error {
+	if m.jobs == nil {
+		return fmt.Errorf("worker dependency not set")
+	}
+
+	// Bind synchronously so a busy port fails Start instead of a goroutine.
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", m.port))
+	if err != nil {
+		return fmt.Errorf("listen on :%d: %w", m.port, err)
+	}
+	m.addr = ln.Addr().String()
+
 	// Create Fiber app
 	m.app = fiber.New(fiber.Config{
 		DisableStartupMessage: true,
@@ -64,7 +93,7 @@ func (m *Module) Start(_ context.Context) error {
 	})
 
 	// Create service and handler
-	m.service = NewService(m.jobStore, m.workerContainer)
+	m.service = NewService(m.jobs)
 	m.handler = NewHandler(m.service)
 
 	// Register routes
@@ -80,9 +109,8 @@ func (m *Module) Start(_ context.Context) error {
 
 	// Start HTTP server in background
 	go func() {
-		addr := fmt.Sprintf(":%d", m.port)
-		log.Printf("[api] Starting HTTP server on %s", addr)
-		if err := m.app.Listen(addr); err != nil {
+		log.Printf("[api] Starting HTTP server on %s", m.addr)
+		if err := m.app.Listener(ln); err != nil {
 			log.Printf("[api] HTTP server error: %v", err)
 		}
 	}()
@@ -92,9 +120,9 @@ func (m *Module) Start(_ context.Context) error {
 }
 
 // Stop stops the HTTP server gracefully.
-func (m *Module) Stop(_ context.Context) error {
+func (m *Module) Stop(ctx context.Context) error {
 	if m.app != nil {
-		if err := m.app.Shutdown(); err != nil {
+		if err := m.app.ShutdownWithContext(ctx); err != nil {
 			return err
 		}
 	}

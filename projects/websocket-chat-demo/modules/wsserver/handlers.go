@@ -10,8 +10,6 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-
-	"github.com/example/websocket-chat-demo/modules/chat"
 )
 
 // Rate limiting constants
@@ -36,6 +34,11 @@ type JoinPayload struct {
 // MessagePayload is the payload for sending a message.
 type MessagePayload struct {
 	Content string `json:"content"`
+}
+
+// CreateRoomRequest is the body of POST /api/v1/rooms.
+type CreateRoomRequest struct {
+	Name string `json:"name"`
 }
 
 // rateLimiter implements a simple token bucket rate limiter.
@@ -93,7 +96,7 @@ func (cw *connWrapper) WriteMessage(messageType int, data []byte) error {
 
 // Handlers contains HTTP and WebSocket handlers.
 type Handlers struct {
-	chatAdapter  *chat.ServiceAdapter
+	chat         ChatPort
 	connections  sync.Map // userID -> *connWrapper
 	userRooms    sync.Map // userID -> roomID (for broadcast lookups)
 	rateLimiters sync.Map // userID -> *rateLimiter
@@ -101,10 +104,10 @@ type Handlers struct {
 }
 
 // NewHandlers creates a new handlers instance.
-func NewHandlers(chatAdapter *chat.ServiceAdapter) *Handlers {
+func NewHandlers(chat ChatPort) *Handlers {
 	return &Handlers{
-		chatAdapter: chatAdapter,
-		logger:      slog.Default(),
+		chat:   chat,
+		logger: slog.Default(),
 	}
 }
 
@@ -122,7 +125,7 @@ func (h *Handlers) HandleWebSocket(c *websocket.Conn) {
 		if _, inRoom := h.userRooms.Load(userID); inRoom {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := h.chatAdapter.LeaveRoom(ctx, userID); err != nil {
+			if err := h.chat.LeaveRoom(ctx, userID); err != nil {
 				h.logger.Error("Failed to leave room on disconnect", "userID", userID, "error", err)
 			}
 		}
@@ -191,7 +194,7 @@ func (h *Handlers) handleJoin(cw *connWrapper, userID string, payload json.RawMe
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	user, err := h.chatAdapter.JoinRoom(ctx, req.RoomID, userID, req.Username)
+	user, err := h.chat.JoinRoom(ctx, req.RoomID, userID, req.Username)
 	if err != nil {
 		h.sendErrorToWrapper(cw, err.Error())
 		return
@@ -211,7 +214,7 @@ func (h *Handlers) handleLeave(cw *connWrapper, userID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	user, exists, err := h.chat.GetUser(ctx, userID)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get user")
 		return
@@ -222,7 +225,7 @@ func (h *Handlers) handleLeave(cw *connWrapper, userID string) {
 	}
 
 	roomID := user.RoomID
-	if err := h.chatAdapter.LeaveRoom(ctx, userID); err != nil {
+	if err := h.chat.LeaveRoom(ctx, userID); err != nil {
 		h.sendErrorToWrapper(cw, err.Error())
 		return
 	}
@@ -261,7 +264,7 @@ func (h *Handlers) handleChatMessage(cw *connWrapper, userID string, payload jso
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	_, exists, err := h.chat.GetUser(ctx, userID)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get user")
 		return
@@ -271,7 +274,7 @@ func (h *Handlers) handleChatMessage(cw *connWrapper, userID string, payload jso
 		return
 	}
 
-	if err := h.chatAdapter.SendMessage(ctx, userID, req.Content); err != nil {
+	if err := h.chat.SendMessage(ctx, userID, req.Content); err != nil {
 		h.sendErrorToWrapper(cw, err.Error())
 		return
 	}
@@ -284,7 +287,7 @@ func (h *Handlers) handleHistory(cw *connWrapper, userID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	user, exists, err := h.chat.GetUser(ctx, userID)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get user")
 		return
@@ -294,7 +297,7 @@ func (h *Handlers) handleHistory(cw *connWrapper, userID string) {
 		return
 	}
 
-	history, err := h.chatAdapter.GetHistory(ctx, user.RoomID, 50)
+	history, err := h.chat.GetHistory(ctx, user.RoomID, 50)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get history")
 		return
@@ -307,7 +310,7 @@ func (h *Handlers) handleUsers(cw *connWrapper, userID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	user, exists, err := h.chatAdapter.GetUser(ctx, userID)
+	user, exists, err := h.chat.GetUser(ctx, userID)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get user")
 		return
@@ -317,7 +320,7 @@ func (h *Handlers) handleUsers(cw *connWrapper, userID string) {
 		return
 	}
 
-	users, err := h.chatAdapter.GetRoomUsers(ctx, user.RoomID)
+	users, err := h.chat.GetRoomUsers(ctx, user.RoomID)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get users")
 		return
@@ -330,7 +333,7 @@ func (h *Handlers) handleRooms(cw *connWrapper) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	rooms, err := h.chatAdapter.ListRooms(ctx)
+	rooms, err := h.chat.ListRooms(ctx)
 	if err != nil {
 		h.sendErrorToWrapper(cw, "Failed to get rooms")
 		return
@@ -402,10 +405,10 @@ func (h *Handlers) sendErrorToWrapper(cw *connWrapper, errMsg string) {
 
 // ListRooms handles room listing requests (GET /api/v1/rooms).
 func (h *Handlers) ListRooms(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.UserContext(), 5*time.Second)
 	defer cancel()
 
-	rooms, err := h.chatAdapter.ListRooms(ctx)
+	rooms, err := h.chat.ListRooms(ctx)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to list rooms",
@@ -419,17 +422,17 @@ func (h *Handlers) ListRooms(c *fiber.Ctx) error {
 
 // CreateRoom handles room creation requests (POST /api/v1/rooms).
 func (h *Handlers) CreateRoom(c *fiber.Ctx) error {
-	var req chat.CreateRoomRequest
+	var req CreateRoomRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request body",
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.UserContext(), 5*time.Second)
 	defer cancel()
 
-	room, err := h.chatAdapter.CreateRoom(ctx, req.Name)
+	room, err := h.chat.CreateRoom(ctx, req.Name)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -447,10 +450,10 @@ func (h *Handlers) GetRoomHistory(c *fiber.Ctx) error {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.UserContext(), 5*time.Second)
 	defer cancel()
 
-	_, exists, err := h.chatAdapter.GetRoom(ctx, roomID)
+	_, exists, err := h.chat.GetRoom(ctx, roomID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to get room",
@@ -467,7 +470,7 @@ func (h *Handlers) GetRoomHistory(c *fiber.Ctx) error {
 		limit = 100
 	}
 
-	history, err := h.chatAdapter.GetHistory(ctx, roomID, limit)
+	history, err := h.chat.GetHistory(ctx, roomID, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to get history",

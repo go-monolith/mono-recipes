@@ -1,19 +1,22 @@
+// Package auth holds the auth module: user registration, login and JWT
+// handling backed by SQLite (GORM). Other modules call it through
+// auth/contract, never by importing this package.
 package auth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 
-	domain "github.com/example/jwt-auth-demo/domain/user"
 	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	domain "github.com/example/jwt-auth-demo/domain/user"
+	"github.com/example/jwt-auth-demo/modules/auth/contract"
 )
 
 // AuthModule provides authentication services.
@@ -24,9 +27,11 @@ type AuthModule struct {
 }
 
 // Compile-time interface checks.
-var _ mono.Module = (*AuthModule)(nil)
-var _ mono.ServiceProviderModule = (*AuthModule)(nil)
-var _ mono.HealthCheckableModule = (*AuthModule)(nil)
+var (
+	_ mono.Module                = (*AuthModule)(nil)
+	_ mono.ServiceProviderModule = (*AuthModule)(nil)
+	_ mono.HealthCheckableModule = (*AuthModule)(nil)
+)
 
 // NewModule creates a new AuthModule.
 func NewModule() *AuthModule {
@@ -119,75 +124,39 @@ func (m *AuthModule) Health(_ context.Context) mono.HealthStatus {
 	}
 }
 
-// RegisterServices registers request-reply services in the service container.
+// RegisterServices is the driving adapter: it binds the handlers below to the
+// module's own contracts. No service-name strings, no manual JSON.
 func (m *AuthModule) RegisterServices(container mono.ServiceContainer) error {
-	// Register register service
-	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"register",
-		json.Unmarshal,
-		json.Marshal,
-		m.handleRegister,
-	); err != nil {
-		return fmt.Errorf("failed to register register service: %w", err)
+	if err := contract.Register.Register(container, m.handleRegister); err != nil {
+		return fmt.Errorf("failed to register %s service: %w", contract.Register.Name, err)
+	}
+	if err := contract.Login.Register(container, m.handleLogin); err != nil {
+		return fmt.Errorf("failed to register %s service: %w", contract.Login.Name, err)
+	}
+	if err := contract.RefreshToken.Register(container, m.handleRefresh); err != nil {
+		return fmt.Errorf("failed to register %s service: %w", contract.RefreshToken.Name, err)
+	}
+	if err := contract.ValidateToken.Register(container, m.handleValidateToken); err != nil {
+		return fmt.Errorf("failed to register %s service: %w", contract.ValidateToken.Name, err)
+	}
+	if err := contract.GetUser.Register(container, m.handleGetUser); err != nil {
+		return fmt.Errorf("failed to register %s service: %w", contract.GetUser.Name, err)
 	}
 
-	// Register login service
-	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"login",
-		json.Unmarshal,
-		json.Marshal,
-		m.handleLogin,
-	); err != nil {
-		return fmt.Errorf("failed to register login service: %w", err)
-	}
-
-	// Register refresh-token service
-	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"refresh-token",
-		json.Unmarshal,
-		json.Marshal,
-		m.handleRefresh,
-	); err != nil {
-		return fmt.Errorf("failed to register refresh-token service: %w", err)
-	}
-
-	// Register validate-token service
-	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"validate-token",
-		json.Unmarshal,
-		json.Marshal,
-		m.handleValidateToken,
-	); err != nil {
-		return fmt.Errorf("failed to register validate-token service: %w", err)
-	}
-
-	// Register get-user service
-	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"get-user",
-		json.Unmarshal,
-		json.Marshal,
-		m.handleGetUser,
-	); err != nil {
-		return fmt.Errorf("failed to register get-user service: %w", err)
-	}
-
-	log.Printf("[auth] Registered services: register, login, refresh-token, validate-token, get-user")
+	log.Printf("[auth] Registered services: %s, %s, %s, %s, %s",
+		contract.Register.Name, contract.Login.Name, contract.RefreshToken.Name,
+		contract.ValidateToken.Name, contract.GetUser.Name)
 	return nil
 }
 
 // handleRegister handles user registration.
-func (m *AuthModule) handleRegister(ctx context.Context, req RegisterRequest, _ *mono.Msg) (RegisterResponse, error) {
+func (m *AuthModule) handleRegister(ctx context.Context, req contract.RegisterRequest, _ *mono.Msg) (contract.RegisterResponse, error) {
 	user, err := m.service.Register(ctx, req.Email, req.Password)
 	if err != nil {
-		return RegisterResponse{}, err
+		return contract.RegisterResponse{}, err
 	}
 
-	return RegisterResponse{
+	return contract.RegisterResponse{
 		ID:        user.ID,
 		Email:     user.Email,
 		CreatedAt: user.CreatedAt,
@@ -195,13 +164,13 @@ func (m *AuthModule) handleRegister(ctx context.Context, req RegisterRequest, _ 
 }
 
 // handleLogin handles user login.
-func (m *AuthModule) handleLogin(ctx context.Context, req LoginRequest, _ *mono.Msg) (LoginResponse, error) {
+func (m *AuthModule) handleLogin(ctx context.Context, req contract.LoginRequest, _ *mono.Msg) (contract.TokenResponse, error) {
 	tokens, err := m.service.Login(ctx, req.Email, req.Password)
 	if err != nil {
-		return LoginResponse{}, err
+		return contract.TokenResponse{}, err
 	}
 
-	return LoginResponse{
+	return contract.TokenResponse{
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 		ExpiresIn:    tokens.ExpiresIn,
@@ -210,13 +179,13 @@ func (m *AuthModule) handleLogin(ctx context.Context, req LoginRequest, _ *mono.
 }
 
 // handleRefresh handles token refresh.
-func (m *AuthModule) handleRefresh(ctx context.Context, req RefreshRequest, _ *mono.Msg) (RefreshResponse, error) {
+func (m *AuthModule) handleRefresh(ctx context.Context, req contract.RefreshRequest, _ *mono.Msg) (contract.TokenResponse, error) {
 	tokens, err := m.service.RefreshTokens(ctx, req.RefreshToken)
 	if err != nil {
-		return RefreshResponse{}, err
+		return contract.TokenResponse{}, err
 	}
 
-	return RefreshResponse{
+	return contract.TokenResponse{
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 		ExpiresIn:    tokens.ExpiresIn,
@@ -225,20 +194,20 @@ func (m *AuthModule) handleRefresh(ctx context.Context, req RefreshRequest, _ *m
 }
 
 // handleValidateToken handles token validation.
-func (m *AuthModule) handleValidateToken(ctx context.Context, req ValidateTokenRequest, _ *mono.Msg) (ValidateTokenResponse, error) {
+func (m *AuthModule) handleValidateToken(ctx context.Context, req contract.ValidateTokenRequest, _ *mono.Msg) (contract.ValidateTokenResponse, error) {
 	claims, err := m.service.ValidateToken(ctx, req.Token)
 	if err != nil {
 		errMsg := "invalid token"
 		if errors.Is(err, ErrExpiredToken) {
 			errMsg = "token expired"
 		}
-		return ValidateTokenResponse{
+		return contract.ValidateTokenResponse{
 			Valid: false,
 			Error: errMsg,
 		}, nil // Return response, not error, for validation failures
 	}
 
-	return ValidateTokenResponse{
+	return contract.ValidateTokenResponse{
 		Valid:  true,
 		UserID: claims.UserID,
 		Email:  claims.Email,
@@ -246,13 +215,13 @@ func (m *AuthModule) handleValidateToken(ctx context.Context, req ValidateTokenR
 }
 
 // handleGetUser handles get user requests.
-func (m *AuthModule) handleGetUser(ctx context.Context, req GetUserRequest, _ *mono.Msg) (GetUserResponse, error) {
+func (m *AuthModule) handleGetUser(ctx context.Context, req contract.GetUserRequest, _ *mono.Msg) (contract.GetUserResponse, error) {
 	user, err := m.service.GetUser(ctx, req.UserID)
 	if err != nil {
-		return GetUserResponse{}, err
+		return contract.GetUserResponse{}, err
 	}
 
-	return GetUserResponse{
+	return contract.GetUserResponse{
 		ID:        user.ID,
 		Email:     user.Email,
 		CreatedAt: user.CreatedAt,

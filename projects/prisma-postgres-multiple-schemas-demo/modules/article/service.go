@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/example/prisma-postgres-demo/modules/article/db/generated"
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/article/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/article/contract"
 )
 
 // Validation errors (exported for error checking via errors.Is).
@@ -22,17 +24,17 @@ var (
 // ArticleService defines the interface for article business operations.
 type ArticleService interface {
 	// Create creates a new article.
-	Create(ctx context.Context, req CreateArticleRequest) (ArticleResponse, error)
+	Create(ctx context.Context, req contract.CreateArticleRequest) (contract.ArticleResponse, error)
 	// Get retrieves an article by ID or slug.
-	Get(ctx context.Context, req GetArticleRequest) (ArticleResponse, error)
+	Get(ctx context.Context, req contract.GetArticleRequest) (contract.ArticleResponse, error)
 	// List retrieves paginated articles with optional published filter.
-	List(ctx context.Context, req ListArticlesRequest) (ListArticlesResponse, error)
+	List(ctx context.Context, req contract.ListArticlesRequest) (contract.ListArticlesResponse, error)
 	// Update updates an existing article.
-	Update(ctx context.Context, req UpdateArticleRequest) (ArticleResponse, error)
+	Update(ctx context.Context, req contract.UpdateArticleRequest) (contract.ArticleResponse, error)
 	// Delete removes an article by ID.
-	Delete(ctx context.Context, req DeleteArticleRequest) (DeleteArticleResponse, error)
+	Delete(ctx context.Context, req contract.DeleteArticleRequest) (contract.DeleteArticleResponse, error)
 	// Publish sets an article's published status to true.
-	Publish(ctx context.Context, req PublishArticleRequest) (ArticleResponse, error)
+	Publish(ctx context.Context, req contract.PublishArticleRequest) (contract.ArticleResponse, error)
 }
 
 // ArticleServiceImpl implements ArticleService using ArticleRepository.
@@ -51,29 +53,29 @@ func NewArticleService(repo ArticleRepository) ArticleService {
 }
 
 // Create handles the article creation request.
-func (s *ArticleServiceImpl) Create(ctx context.Context, req CreateArticleRequest) (ArticleResponse, error) {
+func (s *ArticleServiceImpl) Create(ctx context.Context, req contract.CreateArticleRequest) (contract.ArticleResponse, error) {
 	if req.Title == "" {
-		return ArticleResponse{}, ErrTitleRequired
+		return contract.ArticleResponse{}, ErrTitleRequired
 	}
 	if req.Content == "" {
-		return ArticleResponse{}, ErrContentRequired
+		return contract.ArticleResponse{}, ErrContentRequired
 	}
 	if req.Slug == "" {
-		return ArticleResponse{}, ErrSlugRequired
+		return contract.ArticleResponse{}, ErrSlugRequired
 	}
 
 	article, err := s.repo.Create(ctx, req.Title, req.Content, req.Slug, req.Published)
 	if err != nil {
-		return ArticleResponse{}, err
+		return contract.ArticleResponse{}, err
 	}
 
 	return toArticleResponse(article), nil
 }
 
 // Get handles the article retrieval request (by ID or slug).
-func (s *ArticleServiceImpl) Get(ctx context.Context, req GetArticleRequest) (ArticleResponse, error) {
+func (s *ArticleServiceImpl) Get(ctx context.Context, req contract.GetArticleRequest) (contract.ArticleResponse, error) {
 	if req.ID == "" && req.Slug == "" {
-		return ArticleResponse{}, ErrIDOrSlugRequired
+		return contract.ArticleResponse{}, ErrIDOrSlugRequired
 	}
 
 	var article *generated.ArticleModuleArticle
@@ -82,7 +84,7 @@ func (s *ArticleServiceImpl) Get(ctx context.Context, req GetArticleRequest) (Ar
 	if req.ID != "" {
 		id, parseErr := uuid.Parse(req.ID)
 		if parseErr != nil {
-			return ArticleResponse{}, ErrIDInvalid
+			return contract.ArticleResponse{}, ErrIDInvalid
 		}
 		article, err = s.repo.FindByID(ctx, id)
 	} else {
@@ -90,14 +92,14 @@ func (s *ArticleServiceImpl) Get(ctx context.Context, req GetArticleRequest) (Ar
 	}
 
 	if err != nil {
-		return ArticleResponse{}, err
+		return contract.ArticleResponse{}, err
 	}
 
 	return toArticleResponse(article), nil
 }
 
 // List handles the article list request with pagination and optional published filter.
-func (s *ArticleServiceImpl) List(ctx context.Context, req ListArticlesRequest) (ListArticlesResponse, error) {
+func (s *ArticleServiceImpl) List(ctx context.Context, req contract.ListArticlesRequest) (contract.ListArticlesResponse, error) {
 	limit := clampLimit(req.Limit)
 	offset := clampOffset(req.Offset)
 
@@ -108,27 +110,27 @@ func (s *ArticleServiceImpl) List(ctx context.Context, req ListArticlesRequest) 
 	if req.Published != nil {
 		articles, err = s.repo.FindAllByPublished(ctx, *req.Published, limit, offset)
 		if err != nil {
-			return ListArticlesResponse{}, err
+			return contract.ListArticlesResponse{}, err
 		}
 		total, err = s.repo.CountByPublished(ctx, *req.Published)
 	} else {
 		articles, err = s.repo.FindAll(ctx, limit, offset)
 		if err != nil {
-			return ListArticlesResponse{}, err
+			return contract.ListArticlesResponse{}, err
 		}
 		total, err = s.repo.Count(ctx)
 	}
 
 	if err != nil {
-		return ListArticlesResponse{}, err
+		return contract.ListArticlesResponse{}, err
 	}
 
-	articleResponses := make([]ArticleResponse, len(articles))
+	articleResponses := make([]contract.ArticleResponse, len(articles))
 	for i := range articles {
 		articleResponses[i] = toArticleResponse(&articles[i])
 	}
 
-	return ListArticlesResponse{
+	return contract.ListArticlesResponse{
 		Articles: articleResponses,
 		Total:    total,
 		Limit:    limit,
@@ -137,67 +139,67 @@ func (s *ArticleServiceImpl) List(ctx context.Context, req ListArticlesRequest) 
 }
 
 // Update handles the article update request.
-func (s *ArticleServiceImpl) Update(ctx context.Context, req UpdateArticleRequest) (ArticleResponse, error) {
+func (s *ArticleServiceImpl) Update(ctx context.Context, req contract.UpdateArticleRequest) (contract.ArticleResponse, error) {
 	if req.ID == "" {
-		return ArticleResponse{}, ErrIDRequired
+		return contract.ArticleResponse{}, ErrIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return ArticleResponse{}, ErrIDInvalid
+		return contract.ArticleResponse{}, ErrIDInvalid
 	}
 
 	// Validate non-empty values when pointers are provided
 	if req.Title != nil && *req.Title == "" {
-		return ArticleResponse{}, ErrTitleRequired
+		return contract.ArticleResponse{}, ErrTitleRequired
 	}
 	if req.Content != nil && *req.Content == "" {
-		return ArticleResponse{}, ErrContentRequired
+		return contract.ArticleResponse{}, ErrContentRequired
 	}
 	if req.Slug != nil && *req.Slug == "" {
-		return ArticleResponse{}, ErrSlugRequired
+		return contract.ArticleResponse{}, ErrSlugRequired
 	}
 
 	article, err := s.repo.Update(ctx, id, req.Title, req.Content, req.Slug, req.Published)
 	if err != nil {
-		return ArticleResponse{}, err
+		return contract.ArticleResponse{}, err
 	}
 
 	return toArticleResponse(article), nil
 }
 
 // Delete handles the article deletion request.
-func (s *ArticleServiceImpl) Delete(ctx context.Context, req DeleteArticleRequest) (DeleteArticleResponse, error) {
+func (s *ArticleServiceImpl) Delete(ctx context.Context, req contract.DeleteArticleRequest) (contract.DeleteArticleResponse, error) {
 	if req.ID == "" {
-		return DeleteArticleResponse{}, ErrIDRequired
+		return contract.DeleteArticleResponse{}, ErrIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return DeleteArticleResponse{}, ErrIDInvalid
+		return contract.DeleteArticleResponse{}, ErrIDInvalid
 	}
 
 	if err := s.repo.Delete(ctx, id); err != nil {
-		return DeleteArticleResponse{ID: req.ID}, err
+		return contract.DeleteArticleResponse{ID: req.ID}, err
 	}
 
-	return DeleteArticleResponse{Deleted: true, ID: req.ID}, nil
+	return contract.DeleteArticleResponse{Deleted: true, ID: req.ID}, nil
 }
 
 // Publish handles the article publish request.
-func (s *ArticleServiceImpl) Publish(ctx context.Context, req PublishArticleRequest) (ArticleResponse, error) {
+func (s *ArticleServiceImpl) Publish(ctx context.Context, req contract.PublishArticleRequest) (contract.ArticleResponse, error) {
 	if req.ID == "" {
-		return ArticleResponse{}, ErrIDRequired
+		return contract.ArticleResponse{}, ErrIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return ArticleResponse{}, ErrIDInvalid
+		return contract.ArticleResponse{}, ErrIDInvalid
 	}
 
 	article, err := s.repo.Publish(ctx, id)
 	if err != nil {
-		return ArticleResponse{}, err
+		return contract.ArticleResponse{}, err
 	}
 
 	return toArticleResponse(article), nil
@@ -222,8 +224,8 @@ func clampOffset(offset int32) int32 {
 	return offset
 }
 
-func toArticleResponse(article *generated.ArticleModuleArticle) ArticleResponse {
-	return ArticleResponse{
+func toArticleResponse(article *generated.ArticleModuleArticle) contract.ArticleResponse {
+	return contract.ArticleResponse{
 		ID:        uuidToString(article.ID),
 		Title:     article.Title,
 		Content:   article.Content,

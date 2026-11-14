@@ -12,6 +12,7 @@ import (
 
 	"github.com/example/rate-limiting-middleware/middleware/ratelimit"
 	"github.com/example/rate-limiting-middleware/modules/api"
+	apicontract "github.com/example/rate-limiting-middleware/modules/api/contract"
 )
 
 func main() {
@@ -24,6 +25,8 @@ func main() {
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
 		mono.WithShutdownTimeout(10*time.Second),
+		// Reject module boundary violations (see "Module boundaries" in README).
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
@@ -31,7 +34,8 @@ func main() {
 
 	logger := app.Logger()
 
-	// Create rate limiting middleware with service-specific limits
+	// Create rate limiting middleware with service-specific limits.
+	// Limits are keyed by service name, taken from the api contracts.
 	rateLimitMiddleware, err := ratelimit.New(
 		ratelimit.WithRedisAddr(redisAddr),
 		ratelimit.WithRedisPassword(redisPassword),
@@ -39,9 +43,9 @@ func main() {
 		ratelimit.WithDefaultLimit(100, time.Minute),
 		// get-data: 100 requests per minute (uses default)
 		// create-order: 50 requests per minute (more restrictive)
-		ratelimit.WithServiceLimit(api.ServiceCreateOrder, 50, time.Minute),
+		ratelimit.WithServiceLimit(apicontract.CreateOrder.Name, 50, time.Minute),
 		// get-status: 200 requests per minute (less restrictive for health checks)
-		ratelimit.WithServiceLimit(api.ServiceGetStatus, 200, time.Minute),
+		ratelimit.WithServiceLimit(apicontract.GetStatus.Name, 200, time.Minute),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create rate limiting middleware: %v", err)
@@ -52,10 +56,14 @@ func main() {
 
 	// Register middleware BEFORE regular modules
 	// Middleware must be registered first to intercept service registrations
-	app.Register(rateLimitMiddleware)
+	if err := app.Register(rateLimitMiddleware); err != nil {
+		log.Fatalf("Failed to register rate limiting middleware: %v", err)
+	}
 
 	// Register regular modules
-	app.Register(apiModule)
+	if err := app.Register(apiModule); err != nil {
+		log.Fatalf("Failed to register api module: %v", err)
+	}
 
 	// Start the application
 	ctx := context.Background()
@@ -66,12 +74,12 @@ func main() {
 	logger.Info("Rate Limiting Middleware Demo started")
 	logger.Info("Services available",
 		"services", []string{
-			api.ServiceGetData + " (100 req/min)",
-			api.ServiceCreateOrder + " (50 req/min)",
-			api.ServiceGetStatus + " (200 req/min)",
+			apicontract.GetData.Subject() + " (100 req/min)",
+			apicontract.CreateOrder.Subject() + " (50 req/min)",
+			apicontract.GetStatus.Subject() + " (200 req/min)",
 		})
 	logger.Info("Use nats CLI to test the services",
-		"example", "nats request services.api."+api.ServiceGetData+" '{}' --header X-Client-ID:client1")
+		"example", "nats request "+apicontract.GetData.Subject()+" '{}' --header X-Client-ID:client1")
 	logger.Info("Press Ctrl+C to shutdown")
 
 	// Wait for shutdown signal

@@ -5,6 +5,9 @@ cron-scheduled service backed by the embedded NATS JetStream **message scheduler
 (nats-server v2.14+). You register a schedule and a handler; the framework provisions
 the schedule on the server and invokes your handler on every occurrence.
 
+Built on **mono v0.1.1**. The two modules talk only through a typed service contract
+(`scheduler/contract.GetStats`), and the app runs with strict module boundaries.
+
 > Reference: [Mono docs — Cron Scheduler](https://gelmium.gitbook.io/monolith-framework/examples/cron-scheduler)
 
 ## Why CronService instead of a `time.Ticker`?
@@ -32,15 +35,23 @@ means N duplicate firings per tick, so you end up hand-rolling leader election. 
                           └───────────────┬───────────────────────────┘
                                           │ one delivery per occurrence
                                           ▼
-                          scheduler handlers  ──record──►  stats.Store  ◄──read── api module
-                          (Ack on nil / Nak on error)                            GET /stats
+                          scheduler handlers ──record──► stats store (private to scheduler)
+                          (Ack on nil / Nak on error)          │
+                                                               │ contract.GetStats
+                                                               │ services.scheduler.get-stats
+                                                               ▼
+                                     api module: StatsPort ─► schedulerAdapter ─► GET /stats
 ```
 
 - **`modules/scheduler`** — a `ServiceProviderModule` that registers three cron services
-  in `RegisterServices`, each handler recording a tick in a shared `stats.Store`.
+  in `RegisterServices`, each handler recording a tick in the module's private stats
+  store, plus the `get-stats` request-reply service (through its typed contract) that
+  returns a snapshot of it.
+- **`modules/scheduler/contract`** — the scheduler's published port: the `ScheduleStat`
+  DTO and the `GetStats` contract. The only scheduler package other modules import.
 - **`modules/api`** — a Fiber HTTP module exposing `GET /health` and `GET /stats` so you
-  can observe cron activity live.
-- **`stats`** — a tiny thread-safe counter store shared by both modules.
+  can observe cron activity live. It declares `scheduler` as a dependency and reads the
+  stats through its own `StatsPort`, implemented by an adapter over `GetStats`.
 
 ## The three schedules (schedule-format showcase)
 
@@ -52,8 +63,8 @@ means N duplicate firings per tick, so you end up hand-rolling leader election. 
 
 ### Cron expressions: five OR six fields
 
-As of **mono v0.0.8** the scheduler accepts both the standard **five-field** cron format
-and the embedded scheduler's native **six-field** (seconds-first) format. A five-field
+The mono scheduler (v0.1.1, used here) accepts both the standard **five-field** cron
+format and the embedded scheduler's native **six-field** (seconds-first) format. A five-field
 expression is normalized by prepending a `0` seconds field, so `0 0 * * *` becomes
 `0 0 0 * * *` (daily at midnight). Use six fields when you need sub-minute precision.
 
@@ -130,13 +141,71 @@ curl -s http://localhost:8080/health
 
 Press `Ctrl+C` for a graceful shutdown — the framework drains the cron consumers.
 
+## Module boundaries
+
+The api module does not share state with the scheduler. The scheduler publishes a typed
+contract, the only scheduler package other modules import:
+
+```go
+// modules/scheduler/contract/contract.go
+var GetStats = helper.RequestReplyService[GetStatsRequest, GetStatsResponse]("scheduler", "get-stats")
+
+// modules/scheduler/module.go (provider)
+if err := contract.GetStats.Register(c, m.getStats); err != nil { ... }
+```
+
+The api module declares the dependency, wires its adapter from the read-only container
+it receives, and lists the contract it calls in `ConsumeServices()`, which the framework
+validates at startup:
+
+```go
+func (m *Module) Dependencies() []string { return []string{"scheduler"} }
+
+func (m *Module) SetDependencyServiceContainer(dep string, c mono.ServiceContainer) {
+    if dep == "scheduler" {
+        m.stats = schedulerAdapter{container: c} // calls schedulercontract.GetStats.Call
+    }
+}
+
+func (m *Module) ConsumeServices() []types.BaseServiceDefinition {
+    return []types.BaseServiceDefinition{schedulercontract.GetStats.ToBase()}
+}
+```
+
+`main.go` enables `mono.WithStrictModuleBoundaries()`, so a boundary violation fails
+instead of being logged at `Stop`.
+
+### Tests
+
+```bash
+go test ./...                       # all tests
+go test ./modules/... -run Conformance -v
+go test -run TestAppCronStatsEndToEnd -v .
+```
+
+- `modules/api/module_test.go` and `modules/scheduler/module_test.go` run
+  `monotest.CheckModule` (no NATS). monotest registers but does not fire cron services,
+  so the scheduler check exercises `GetStats` only.
+- `main_test.go` is the real-app test (cron needs JetStream): embedded NATS on a free
+  port, JetStream in `t.TempDir()`, strict mode; it waits for a real heartbeat, reads it
+  through the contract and `GET /stats`, and asserts `app.ModuleBoundaries()` reports no
+  violations and no unused dependencies. Skipped with `-short`.
+
 ## Project layout
 
 ```
 cron-scheduler-demo/
-├── main.go                  # JetStream-enabled app, module wiring, graceful shutdown
-├── stats/store.go           # thread-safe tick counters shared by both modules
+├── main.go                       # JetStream-enabled app, strict boundaries, graceful shutdown
+├── main_test.go                  # real-app test: cron fires, /stats, boundary report
 └── modules/
-    ├── scheduler/module.go  # registers the three CronServices (the showcase)
-    └── api/module.go         # Fiber HTTP server: GET /health, GET /stats
+    ├── scheduler/
+    │   ├── contract/contract.go  # published port: ScheduleStat + GetStats contract
+    │   ├── module.go             # registers the three CronServices (the showcase) + get-stats
+    │   ├── stats.go              # private thread-safe tick counters
+    │   └── module_test.go        # monotest.CheckModule
+    └── api/
+        ├── module.go             # Fiber HTTP server: GET /health, GET /stats; ConsumeServices
+        ├── ports.go              # StatsPort (consumer-owned)
+        ├── adapter.go            # StatsPort over schedulercontract.GetStats
+        └── module_test.go        # monotest.CheckModule with a stand-in scheduler
 ```

@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/example/cron-scheduler-demo/stats"
+	"github.com/example/cron-scheduler-demo/modules/scheduler/contract"
 	"github.com/go-monolith/mono"
 )
 
@@ -16,8 +16,11 @@ import (
 // per tick — no client-side ticker and no leader election. Occurrences are
 // delivered through a durable pull consumer with explicit acknowledgement
 // (at-least-once).
+//
+// The tick counts are module-private state. Other modules read them through
+// the typed contract.GetStats request-reply service, never by sharing a store.
 type Module struct {
-	store *stats.Store
+	store *statsStore
 }
 
 // Compile-time interface checks.
@@ -26,13 +29,13 @@ var (
 	_ mono.ServiceProviderModule = (*Module)(nil)
 )
 
-// NewModule creates the scheduler module, writing tick counts into the shared store.
-func NewModule(store *stats.Store) *Module {
-	return &Module{store: store}
+// NewModule creates the scheduler module with an empty stats store.
+func NewModule() *Module {
+	return &Module{store: newStatsStore()}
 }
 
 // Name identifies the module.
-func (m *Module) Name() string { return "scheduler" }
+func (m *Module) Name() string { return contract.ModuleName }
 
 // Start is a no-op; the cron schedules are provisioned by the framework when
 // RegisterServices runs. The consumers are started automatically.
@@ -47,15 +50,17 @@ func (m *Module) Stop(_ context.Context) error {
 	return nil
 }
 
-// RegisterServices registers three cron-scheduled services. Each demonstrates a
-// different schedule format accepted by CronServiceConfig.Schedule:
+// RegisterServices registers the GetStats request-reply service (through its
+// typed contract) and three cron-scheduled services. Each cron service
+// demonstrates a different schedule format accepted by CronServiceConfig.Schedule:
 //
 //   - "@every 2s"        interval form (minimum 1s; no time zone)
 //   - "*/20 * * * * *"   six-field cron expression (here: every 20s)
 //   - "0 0 * * *"        standard five-field cron expression (here: daily 00:00)
 //
-// NOTE on cron syntax: mono v0.0.8+ accepts BOTH the standard five-field cron
-// format and the embedded scheduler's native six-field (seconds-first) format.
+// NOTE on cron syntax: mono (v0.1.1 here) accepts BOTH the standard five-field
+// cron format and the embedded scheduler's native six-field (seconds-first)
+// format.
 // A five-field expression is normalized by prepending a "0" seconds field, so
 // "0 0 * * *" becomes "0 0 0 * * *" (daily at midnight) — see
 // types.NormalizeCronSchedule.
@@ -74,6 +79,11 @@ func (m *Module) Stop(_ context.Context) error {
 // The framework owns acknowledgement: returning nil Acks the occurrence, a
 // non-nil error Naks it (redelivered up to the consumer's MaxDeliver).
 func (m *Module) RegisterServices(c mono.ServiceContainer) error {
+	// 0) The published read side: other modules call contract.GetStats.
+	if err := contract.GetStats.Register(c, m.getStats); err != nil {
+		return fmt.Errorf("register get-stats service: %w", err)
+	}
+
 	// 1) Interval schedule with a static payload — a liveness heartbeat.
 	if err := c.RegisterCronService("heartbeat", mono.CronServiceConfig{
 		Schedule: "@every 2s",
@@ -96,7 +106,7 @@ func (m *Module) RegisterServices(c mono.ServiceContainer) error {
 	}
 
 	// 3) Standard FIVE-field cron expression — a once-a-day summary at 00:00 UTC.
-	//    "0 0 * * *" is normalized to "0 0 0 * * *" by the framework (v0.0.8+).
+	//    "0 0 * * *" is normalized to "0 0 0 * * *" by the framework.
 	//    In a real app this is where you'd email a daily digest. (The named
 	//    aliases @daily/@hourly/... are accepted here too.)
 	if err := c.RegisterCronService("daily-report", mono.CronServiceConfig{
@@ -118,6 +128,11 @@ func (m *Module) RegisterServices(c mono.ServiceContainer) error {
 	//     stop the consumer while keeping this registration in place (phase one
 	//     of a safe two-phase retirement), then delete the call in a later one.
 	return nil
+}
+
+// getStats serves contract.GetStats with a snapshot of the tick counts.
+func (m *Module) getStats(_ context.Context, _ contract.GetStatsRequest, _ *mono.Msg) (contract.GetStatsResponse, error) {
+	return contract.GetStatsResponse{Schedules: m.store.Snapshot()}, nil
 }
 
 func (m *Module) onHeartbeat(_ context.Context, msg *mono.Msg) error {

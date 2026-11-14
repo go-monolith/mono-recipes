@@ -2,23 +2,20 @@ package notification
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"math/rand"
 	"time"
 
 	"github.com/go-monolith/mono"
+
+	"github.com/example/python-nats-client-demo/modules/notification/contract"
 )
 
-// handleEmailSend handles email.send queue group messages.
+// handleEmailSend handles email-send queue group messages. The contract has
+// already decoded the JSON payload; a message that does not decode is logged
+// by the framework and dropped (queue group messages are not redelivered).
 // This is a fire-and-forget service - no response is sent back.
-func (m *NotificationModule) handleEmailSend(_ context.Context, msg *mono.Msg) error {
-	var req SendEmailRequest
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		log.Printf("[notification] Error unmarshaling email request: %v", err)
-		return nil // Don't retry malformed messages
-	}
-
+func (m *NotificationModule) handleEmailSend(_ context.Context, req contract.SendEmailRequest, _ *mono.Msg) error {
 	// Validate required fields
 	if req.To == "" || req.Subject == "" {
 		log.Printf("[notification] Invalid email request: missing required fields")

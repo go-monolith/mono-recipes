@@ -12,16 +12,18 @@ import (
 	"github.com/go-monolith/mono"
 	fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
 	"github.com/google/uuid"
+
+	"node-nats-client-demo/modules/fileops/contract"
 )
 
-// handleFileSave handles the file.save RequestReplyService.
-func (m *Module) handleFileSave(ctx context.Context, req FileSaveRequest, _ *mono.Msg) (FileSaveResponse, error) {
+// handleFileSave handles the save RequestReplyService.
+func (m *Module) handleFileSave(ctx context.Context, req contract.FileSaveRequest, _ *mono.Msg) (contract.FileSaveResponse, error) {
 	// Validate request
 	if req.Filename == "" {
-		return FileSaveResponse{Error: "filename is required"}, nil
+		return contract.FileSaveResponse{Error: "filename is required"}, nil
 	}
 	if req.Content == nil {
-		return FileSaveResponse{Error: "content is required"}, nil
+		return contract.FileSaveResponse{Error: "content is required"}, nil
 	}
 
 	// Generate unique file ID
@@ -30,7 +32,7 @@ func (m *Module) handleFileSave(ctx context.Context, req FileSaveRequest, _ *mon
 	// Convert content to JSON bytes
 	contentBytes, err := json.Marshal(req.Content)
 	if err != nil {
-		return FileSaveResponse{Error: fmt.Sprintf("failed to serialize content: %v", err)}, nil
+		return contract.FileSaveResponse{Error: fmt.Sprintf("failed to serialize content: %v", err)}, nil
 	}
 
 	// Create storage key: {uuid}/{filename}.json
@@ -45,11 +47,11 @@ func (m *Module) handleFileSave(ctx context.Context, req FileSaveRequest, _ *mon
 		}),
 	)
 	if err != nil {
-		return FileSaveResponse{Error: fmt.Sprintf("failed to save file: %v", err)}, nil
+		return contract.FileSaveResponse{Error: fmt.Sprintf("failed to save file: %v", err)}, nil
 	}
 
 	// Build success response
-	return FileSaveResponse{
+	return contract.FileSaveResponse{
 		FileID:   fileID,
 		Filename: req.Filename,
 		Size:     int64(objInfo.Size),
@@ -58,14 +60,11 @@ func (m *Module) handleFileSave(ctx context.Context, req FileSaveRequest, _ *mon
 	}, nil
 }
 
-// handleFileArchive handles the file.archive QueueGroupService.
-func (m *Module) handleFileArchive(ctx context.Context, msg *mono.Msg) error {
-	var req FileArchiveRequest
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		m.logger.Error("Failed to unmarshal archive request", "error", err)
-		return nil // Fire-and-forget: don't propagate error
-	}
-
+// handleFileArchive handles the archive QueueGroupService. The contract has
+// already decoded the JSON payload; a message that does not decode is logged
+// by the framework and dropped. Errors are logged, not returned: the sender
+// does not wait for the outcome (fire-and-forget).
+func (m *Module) handleFileArchive(ctx context.Context, req contract.FileArchiveRequest, _ *mono.Msg) error {
 	// Validate file ID
 	if req.FileID == "" {
 		m.logger.Warn("Archive request missing file_id")
@@ -162,4 +161,3 @@ func (m *Module) handleFileArchive(ctx context.Context, msg *mono.Msg) error {
 
 	return nil
 }
-

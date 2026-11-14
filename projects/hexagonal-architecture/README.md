@@ -12,18 +12,18 @@ This project demonstrates **Hexagonal Architecture** (Ports and Adapters) using 
                     ┌──────────────▼───────────────────┐
                     │     API Module (Fiber HTTP)      │
                     │       [Driving Adapter]          │
-                    │  Uses TaskPort interface         │
+                    │  owns TaskPort + taskAdapter     │
                     └──────────────┬───────────────────┘
-                                   │ TaskPort
+                                   │ task/contract (CreateTask, GetTask, ...)
                     ┌──────────────▼───────────────────┐
                     │        Task Module               │
                     │       [Core Domain]              │
-                    │  Business logic, publishes       │
-                    │  events to EventBus              │
+                    │  owns UserPort + userAdapter,    │
+                    │  emits task/contract events      │
                     └───────┬──────────────┬───────────┘
                             │              │
-               UserPort     │              │ Events
-                            │              │
+     user/contract          │              │ task/contract events
+     (ValidateUser)         │              │ (TaskCreatedV1, ...)
     ┌───────────────────────▼──┐    ┌──────▼───────────────────┐
     │      User Module         │    │   Notification Module    │
     │  User validation and     │    │     [Driven Adapter]     │
@@ -31,58 +31,89 @@ This project demonstrates **Hexagonal Architecture** (Ports and Adapters) using 
     └──────────────────────────┘    └──────────────────────────┘
 ```
 
+Every arrow crosses a module boundary through a **contract package** owned by
+the provider. No module imports another module's package other than its
+`contract`.
+
 ## Hexagonal Architecture Concepts
 
-### Ports (Interfaces)
-- **TaskPort**: Defines contract for task operations (`modules/task/types.go`)
-- **UserPort**: Defines contract for user validation (`modules/user/adapter.go`)
+### Contracts (published ports)
+Each module that offers services or events publishes them in a `contract`
+sub-package: DTOs plus typed definitions declared once and shared by both sides.
+
+- `modules/user/contract`: `GetUser`, `ValidateUser` (request-reply)
+- `modules/task/contract`: `CreateTask`, `GetTask`, `UpdateTask`, `DeleteTask`,
+  `ListTasks`, `CompleteTask` (request-reply) and the events the task module
+  emits: `TaskCreatedV1`, `TaskCompletedV1`, `TaskDeletedV1`
+
+A contract package imports only the standard library and `mono/pkg/helper`
+(or `mono/pkg/types`), so any module can import it without cycles.
+
+### Driven ports (owned by the consumer)
+- **`api.TaskPort`** (`modules/api/ports.go`): what the HTTP adapter needs from the core domain
+- **`task.UserPort`** (`modules/task/ports.go`): what the task domain needs from the user module
+
+Ports speak the provider's contract DTOs and say nothing about NATS, so tests
+can substitute a fake.
 
 ### Adapters
-- **Driving Adapter**: API module receives HTTP requests and calls the core domain via TaskPort
-- **Driven Adapter**: Notification module reacts to domain events
+- **Driving adapters**: the API module receives HTTP requests; each module's
+  `RegisterServices` binds its domain handlers to its own contracts.
+- **Driven adapters**: `api/adapter.go` and `task/adapter.go` implement the
+  ports by calling the provider's contract (`taskcontract.CreateTask.Call(...)`)
+  through the container received in `SetDependencyServiceContainer`. The
+  notification module reacts to domain events.
 
 ### Domain Isolation
-The Task module (core domain) has no knowledge of HTTP or notification systems. It only depends on abstract interfaces (ports).
+The task module (core domain) has no knowledge of HTTP or notification
+systems. It depends only on the `UserPort` interface it owns and publishes
+events through its own contract.
 
 ## Project Structure
 
 ```
 hexagonal-architecture/
-├── main.go                    # Application bootstrap (framework handles DI)
+├── main.go                    # Application bootstrap (strict module boundaries)
+├── boundaries_test.go         # Whole-app boundary report test (in-process NATS)
 ├── go.mod                     # Go module definition
-├── events/
-│   └── task_events.go         # Typed event definitions using helper.EventDefinition
 ├── domain/
 │   └── task/
 │       └── entity.go          # Task domain entity
 └── modules/
     ├── api/                   # Driving Adapter (HTTP)
-    │   ├── module.go          # DependentModule (depends on task)
+    │   ├── module.go          # DependentModule + ServiceConsumerModule (depends on task)
+    │   ├── ports.go           # TaskPort (driven port owned by api)
+    │   ├── adapter.go         # taskAdapter: TaskPort over task/contract
     │   ├── handlers.go        # REST endpoint handlers
-    │   └── dto.go             # Request/Response DTOs
+    │   ├── dto.go             # HTTP request/response DTOs
+    │   └── module_test.go     # monotest.CheckModule conformance test
     ├── task/                  # Core Domain
-    │   ├── module.go          # ServiceProviderModule, DependentModule, EventEmitterModule
+    │   ├── contract/
+    │   │   └── contract.go    # Task DTOs, service contracts, emitted events
+    │   ├── module.go          # ServiceProvider, Dependent, EventEmitter, ServiceConsumer
+    │   ├── ports.go           # UserPort (driven port owned by task)
+    │   ├── adapter.go         # userAdapter: UserPort over user/contract
     │   ├── service.go         # Business logic handlers
     │   ├── repository.go      # In-memory storage
-    │   ├── adapter.go         # TaskAdapter using helper.CallRequestReplyService
-    │   └── types.go           # Types and TaskPort interface
+    │   └── module_test.go     # monotest.CheckModule conformance test
     ├── user/                  # User Module
+    │   ├── contract/
+    │   │   └── contract.go    # User DTOs and service contracts
     │   ├── module.go          # ServiceProviderModule
     │   ├── repository.go      # In-memory storage with demo users
-    │   ├── adapter.go         # UserAdapter using helper.CallRequestReplyService
-    │   └── types.go           # User types
+    │   └── module_test.go     # monotest.CheckModule conformance test
     └── notification/          # Driven Adapter (Event Consumer)
-        └── module.go          # EventConsumerModule
+        ├── module.go          # EventConsumerModule (uses task/contract events)
+        └── module_test.go     # monotest.CheckModule conformance test
 ```
 
 ## Mono Framework Interfaces
 
-This project demonstrates proper use of mono framework interfaces:
-
 | Interface | Purpose | Implemented By |
 |-----------|---------|----------------|
-| `ServiceProviderModule` | Register request-reply services | user, task |
+| `ServiceProviderModule` | Register services through contracts | user, task |
 | `DependentModule` | Declare and receive dependencies | api, task |
+| `types.ServiceConsumerModule` | Declare consumed contracts (validated at startup) | api, task |
 | `EventEmitterModule` | Declare emitted events | task |
 | `EventBusAwareModule` | Receive event bus for publishing | task |
 | `EventConsumerModule` | Subscribe to events | notification |
@@ -90,47 +121,101 @@ This project demonstrates proper use of mono framework interfaces:
 
 ## Dependency Wiring
 
-The mono framework automatically handles dependency injection:
-
 ```go
-// main.go - Just register modules, framework handles the rest
-app.Register(user.NewModule())         // Independent module
-app.Register(notification.NewModule()) // Event consumer
-app.Register(task.NewModule())         // Depends on user, emits events
-app.Register(api.NewModule())          // Depends on task
-
-// Framework automatically calls:
-// - ServiceProviderModule.RegisterServices() for request-reply services
-// - DependentModule.SetDependencyServiceContainer() for cross-module calls
-// - EventBusAwareModule.SetEventBus() for event publishing
-// - EventConsumerModule.RegisterEventConsumers() for event subscriptions
+// main.go: register modules, the framework handles the wiring.
+app, _ := mono.NewMonoApplication(
+    mono.WithShutdownTimeout(shutdownTimeout),
+    mono.WithStrictModuleBoundaries(),
+)
+for _, m := range []mono.Module{user.NewModule(), notification.NewModule(), task.NewModule(), api.NewModule()} {
+    if err := app.Register(m); err != nil {
+        log.Fatal(err)
+    }
+}
 ```
 
 ### Cross-Module Communication
 
+The provider declares the contract once:
+
 ```go
-// Task module declares dependency on user module
-func (m *TaskModule) Dependencies() []string {
-    return []string{"user"}
+// modules/user/contract/contract.go
+var ValidateUser = helper.RequestReplyService[ValidateUserRequest, ValidateUserResponse]("user", "validate-user")
+
+// modules/user/module.go: driving adapter
+func (m *UserModule) RegisterServices(container mono.ServiceContainer) error {
+    if err := contract.GetUser.Register(container, m.getUser); err != nil {
+        return err
+    }
+    return contract.ValidateUser.Register(container, m.validateUser)
+}
+```
+
+The consumer owns the port and the adapter, and declares what it consumes:
+
+```go
+// modules/task/ports.go
+type UserPort interface {
+    ValidateUser(ctx context.Context, req usercontract.ValidateUserRequest) (usercontract.ValidateUserResponse, error)
 }
 
-// Framework injects user module's ServiceContainer
+// modules/task/adapter.go
+type userAdapter struct{ container mono.ServiceContainer }
+
+func (a userAdapter) ValidateUser(ctx context.Context, req usercontract.ValidateUserRequest) (usercontract.ValidateUserResponse, error) {
+    return usercontract.ValidateUser.Call(ctx, a.container, req)
+}
+
+// modules/task/module.go
+func (m *TaskModule) Dependencies() []string { return []string{"user"} }
+
+func (m *TaskModule) ConsumeServices() []types.BaseServiceDefinition {
+    return []types.BaseServiceDefinition{usercontract.ValidateUser.ToBase()}
+}
+
 func (m *TaskModule) SetDependencyServiceContainer(dep string, container mono.ServiceContainer) {
-    switch dep {
-    case "user":
-        m.userPort = user.NewUserAdapter(container)  // Create adapter from container
+    if dep == "user" {
+        m.userPort = userAdapter{container: container}
     }
 }
+```
+
+Event consumers use the emitter's definitions, never a name string:
+
+```go
+// modules/notification/module.go
+helper.RegisterTypedEventConsumer(registry, taskcontract.TaskCreatedV1, m.handleTaskCreated, m)
+```
+
+## Module Boundaries
+
+- **Contracts**: service names, subjects (`services.task.create-task`, ...) and
+  JSON encoding live only in `<module>/contract`. Module code never writes a
+  service name as a string.
+- **`ConsumeServices()`**: api and task list every contract they call; startup
+  fails fast if a dependency does not provide one.
+- **Strict mode**: `main.go` enables `mono.WithStrictModuleBoundaries()`, so a
+  module that registers on a dependency's container or calls an undeclared
+  module's `services.*` subject is rejected.
+- **Conformance tests**: each module has a `module_test.go` that runs
+  `monotest.CheckModule` with stand-in dependency containers (no NATS) and an
+  exercise that calls every provided and consumed contract.
+  `boundaries_test.go` starts the whole app in recording mode and asserts that
+  `app.ModuleBoundaries()` reports no violations and no unused dependencies.
+
+```bash
+go test ./...                                  # everything
+go test ./modules/... -run Conformance -v      # per-module conformance only
 ```
 
 ## Communication Patterns
 
 1. **Ports and Adapters (Synchronous)**
-   - API → Task: Via TaskPort interface (CreateTask, GetTask, etc.)
-   - Task → User: Via UserPort interface (ValidateUser)
+   - API → Task: `api.TaskPort` over `task/contract` (CreateTask, GetTask, ...)
+   - Task → User: `task.UserPort` over `user/contract` (ValidateUser)
 
 2. **Events (Asynchronous)**
-   - Task publishes: `TaskCreatedEvent`, `TaskCompletedEvent`, `TaskDeletedEvent`
+   - Task publishes `TaskCreatedV1`, `TaskCompletedV1`, `TaskDeletedV1` (from `task/contract`)
    - Notification subscribes and logs/processes events
 
 ## REST API Endpoints
@@ -154,8 +239,12 @@ cd projects/hexagonal-architecture
 # Download dependencies
 go mod tidy
 
-# Run the application
-go run main.go
+# Build and run the application
+go build -o bin/hexagonal-architecture .
+./bin/hexagonal-architecture
+
+# Run the tests (module conformance + whole-app boundary report)
+go test ./...
 ```
 
 ## Example Usage
@@ -203,23 +292,24 @@ The application comes with pre-seeded demo users:
 
 ## Key Hexagonal Patterns Demonstrated
 
-1. **Ports (Interfaces)**: `TaskPort` and `UserPort` define contracts between modules
-2. **Adapters**: `TaskAdapter` and `UserAdapter` implement port interfaces
-3. **Driving Adapter**: API module calls into core domain via TaskPort
-4. **Driven Adapter**: Notification module reacts to domain events
-5. **Domain Isolation**: Task business logic has no HTTP or notification dependencies
-6. **Dependency Inversion**: Core domain depends on abstractions (ports), not implementations
+1. **Contracts**: `task/contract` and `user/contract` are the published ports, shared by provider and consumer
+2. **Consumer-owned ports**: `api.TaskPort` and `task.UserPort` describe only what each consumer needs
+3. **Adapters**: `taskAdapter` and `userAdapter` implement those ports over the provider's contract
+4. **Driving Adapter**: API module calls into core domain via TaskPort
+5. **Driven Adapter**: Notification module reacts to domain events from `task/contract`
+6. **Domain Isolation**: Task business logic has no HTTP or notification dependencies
+7. **Checked boundaries**: `ConsumeServices()`, strict mode and `monotest.CheckModule` tests
 
 ## Graceful Shutdown
 
 The application handles `SIGINT` and `SIGTERM` signals for graceful shutdown:
 - HTTP server stops accepting new requests
 - In-flight requests are allowed to complete
-- All modules shut down in reverse registration order
+- All modules shut down in reverse dependency order
 
 ## Dependencies
 
-- [go-monolith/mono](https://github.com/go-monolith/mono) v0.0.2 - Modular monolith framework
+- [go-monolith/mono](https://github.com/go-monolith/mono) v0.1.1 - Modular monolith framework (typed contracts, module boundaries, `monotest`)
 - [gofiber/fiber](https://github.com/gofiber/fiber) v2 - Fast HTTP server
 - [gelmium/graceful-shutdown](https://github.com/gelmium/graceful-shutdown) - Signal handling
 - [google/uuid](https://github.com/google/uuid) - UUID generation

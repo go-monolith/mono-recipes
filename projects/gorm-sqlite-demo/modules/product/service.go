@@ -6,6 +6,8 @@ import (
 
 	"github.com/go-monolith/mono"
 	"github.com/google/uuid"
+
+	"github.com/example/gorm-sqlite-demo/modules/product/contract"
 )
 
 // Validation errors.
@@ -18,15 +20,15 @@ var (
 )
 
 // createProduct handles the product.create service request.
-func (m *ProductModule) createProduct(_ context.Context, req CreateProductRequest, _ *mono.Msg) (CreateProductResponse, error) {
+func (m *ProductModule) createProduct(ctx context.Context, req contract.CreateProductRequest, _ *mono.Msg) (contract.CreateProductResponse, error) {
 	if req.Name == "" {
-		return CreateProductResponse{}, errNameRequired
+		return contract.CreateProductResponse{}, errNameRequired
 	}
 	if req.Price < 0 {
-		return CreateProductResponse{}, errPriceNegative
+		return contract.CreateProductResponse{}, errPriceNegative
 	}
 	if req.Stock < 0 {
-		return CreateProductResponse{}, errStockNegative
+		return contract.CreateProductResponse{}, errStockNegative
 	}
 
 	product := &Product{
@@ -37,11 +39,11 @@ func (m *ProductModule) createProduct(_ context.Context, req CreateProductReques
 		Stock:       req.Stock,
 	}
 
-	if err := m.repo.Create(product); err != nil {
-		return CreateProductResponse{}, err
+	if err := m.repo.Create(ctx, product); err != nil {
+		return contract.CreateProductResponse{}, err
 	}
 
-	return CreateProductResponse{
+	return contract.CreateProductResponse{
 		ID:          product.ID,
 		Name:        product.Name,
 		Description: product.Description,
@@ -52,28 +54,28 @@ func (m *ProductModule) createProduct(_ context.Context, req CreateProductReques
 }
 
 // getProduct handles the product.get service request.
-func (m *ProductModule) getProduct(_ context.Context, req GetProductRequest, _ *mono.Msg) (ProductResponse, error) {
+func (m *ProductModule) getProduct(ctx context.Context, req contract.GetProductRequest, _ *mono.Msg) (contract.ProductResponse, error) {
 	if req.ID == "" {
-		return ProductResponse{}, errIDRequired
+		return contract.ProductResponse{}, errIDRequired
 	}
 
-	product, err := m.repo.FindByID(req.ID)
+	product, err := m.repo.FindByID(ctx, req.ID)
 	if err != nil {
-		return ProductResponse{}, err
+		return contract.ProductResponse{}, err
 	}
 
 	return toProductResponse(product), nil
 }
 
 // listProducts handles the product.list service request.
-func (m *ProductModule) listProducts(_ context.Context, _ ListProductsRequest, _ *mono.Msg) (ListProductsResponse, error) {
-	products, err := m.repo.FindAll()
+func (m *ProductModule) listProducts(ctx context.Context, _ contract.ListProductsRequest, _ *mono.Msg) (contract.ListProductsResponse, error) {
+	products, err := m.repo.FindAll(ctx)
 	if err != nil {
-		return ListProductsResponse{}, err
+		return contract.ListProductsResponse{}, err
 	}
 
-	response := ListProductsResponse{
-		Products: make([]ProductResponse, 0, len(products)),
+	response := contract.ListProductsResponse{
+		Products: make([]contract.ProductResponse, 0, len(products)),
 		Total:    len(products),
 	}
 
@@ -85,19 +87,19 @@ func (m *ProductModule) listProducts(_ context.Context, _ ListProductsRequest, _
 }
 
 // updateProduct handles the product.update service request.
-func (m *ProductModule) updateProduct(_ context.Context, req UpdateProductRequest, _ *mono.Msg) (ProductResponse, error) {
+func (m *ProductModule) updateProduct(ctx context.Context, req contract.UpdateProductRequest, _ *mono.Msg) (contract.ProductResponse, error) {
 	if req.ID == "" {
-		return ProductResponse{}, errIDRequired
+		return contract.ProductResponse{}, errIDRequired
 	}
 
-	product, err := m.repo.FindByID(req.ID)
+	product, err := m.repo.FindByID(ctx, req.ID)
 	if err != nil {
-		return ProductResponse{}, err
+		return contract.ProductResponse{}, err
 	}
 
 	if req.Name != nil {
 		if *req.Name == "" {
-			return ProductResponse{}, errNameEmpty
+			return contract.ProductResponse{}, errNameEmpty
 		}
 		product.Name = *req.Name
 	}
@@ -106,40 +108,40 @@ func (m *ProductModule) updateProduct(_ context.Context, req UpdateProductReques
 	}
 	if req.Price != nil {
 		if *req.Price < 0 {
-			return ProductResponse{}, errPriceNegative
+			return contract.ProductResponse{}, errPriceNegative
 		}
 		product.Price = *req.Price
 	}
 	if req.Stock != nil {
 		if *req.Stock < 0 {
-			return ProductResponse{}, errStockNegative
+			return contract.ProductResponse{}, errStockNegative
 		}
 		product.Stock = *req.Stock
 	}
 
-	if err := m.repo.Update(product); err != nil {
-		return ProductResponse{}, err
+	if err := m.repo.Update(ctx, product); err != nil {
+		return contract.ProductResponse{}, err
 	}
 
 	return toProductResponse(product), nil
 }
 
 // deleteProduct handles the product.delete service request.
-func (m *ProductModule) deleteProduct(_ context.Context, req DeleteProductRequest, _ *mono.Msg) (DeleteProductResponse, error) {
+func (m *ProductModule) deleteProduct(ctx context.Context, req contract.DeleteProductRequest, _ *mono.Msg) (contract.DeleteProductResponse, error) {
 	if req.ID == "" {
-		return DeleteProductResponse{}, errIDRequired
+		return contract.DeleteProductResponse{}, errIDRequired
 	}
 
-	if err := m.repo.Delete(req.ID); err != nil {
-		return DeleteProductResponse{ID: req.ID}, err
+	if err := m.repo.Delete(ctx, req.ID); err != nil {
+		return contract.DeleteProductResponse{ID: req.ID}, err
 	}
 
-	return DeleteProductResponse{Deleted: true, ID: req.ID}, nil
+	return contract.DeleteProductResponse{Deleted: true, ID: req.ID}, nil
 }
 
 // toProductResponse converts a Product entity to a ProductResponse.
-func toProductResponse(product *Product) ProductResponse {
-	return ProductResponse{
+func toProductResponse(product *Product) contract.ProductResponse {
+	return contract.ProductResponse{
 		ID:          product.ID,
 		Name:        product.Name,
 		Description: product.Description,

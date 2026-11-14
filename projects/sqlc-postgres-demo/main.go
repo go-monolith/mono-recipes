@@ -22,6 +22,9 @@ func main() {
 		mono.WithShutdownTimeout(shutdownTimeout),
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
+		// Reject Ports and Adapters violations (e.g. a module registering on
+		// another module's container) instead of only reporting them at Stop.
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
@@ -30,7 +33,9 @@ func main() {
 	// Register user module
 	// The framework automatically calls:
 	// - ServiceProviderModule.RegisterServices() for request-reply services
-	app.Register(user.NewModule())
+	if err := app.Register(user.NewModule()); err != nil {
+		log.Fatalf("Failed to register user module: %v", err)
+	}
 
 	// Start application
 	if err := app.Start(context.Background()); err != nil {

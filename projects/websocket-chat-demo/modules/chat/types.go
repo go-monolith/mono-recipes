@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/example/websocket-chat-demo/modules/chat/contract"
 )
 
 // Validation constants
@@ -28,54 +30,13 @@ var (
 	ErrRoomAlreadyExists = errors.New("room already exists")
 )
 
-// Message represents a chat message.
-type Message struct {
-	ID        string    `json:"id"`
-	RoomID    string    `json:"room_id"`
-	UserID    string    `json:"user_id"`
-	Username  string    `json:"username"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-	Type      string    `json:"type"` // "message", "join", "leave", "system"
-}
-
-// Room represents a chat room.
-type Room struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UserCount int       `json:"user_count"`
-}
-
-// User represents a connected user.
-type User struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	RoomID   string `json:"room_id"`
-}
-
-// CreateRoomRequest is the request for creating a new room.
-type CreateRoomRequest struct {
-	Name string `json:"name"`
-}
-
-// JoinRoomRequest is the request for joining a room.
-type JoinRoomRequest struct {
-	RoomID   string `json:"room_id"`
-	Username string `json:"username"`
-}
-
-// SendMessageRequest is the request for sending a message.
-type SendMessageRequest struct {
-	Content string `json:"content"`
-}
-
-// ChatEvent is published when a chat event occurs.
-type ChatEvent struct {
-	Type    string  `json:"type"` // "message", "join", "leave"
-	RoomID  string  `json:"room_id"`
-	Message Message `json:"message"`
-}
+// The domain types are the chat contract's DTOs; the aliases keep the store
+// code short.
+type (
+	Message = contract.Message
+	Room    = contract.Room
+	User    = contract.User
+)
 
 // ValidateUsername validates a username.
 func ValidateUsername(username string) error {

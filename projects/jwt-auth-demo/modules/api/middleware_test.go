@@ -9,28 +9,24 @@ import (
 	"strings"
 	"testing"
 
-	domain "github.com/example/jwt-auth-demo/domain/user"
 	"github.com/gofiber/fiber/v2"
+
+	authcontract "github.com/example/jwt-auth-demo/modules/auth/contract"
 )
 
-// mockAuthPort implements auth.AuthPort for testing
+// mockAuthPort is a fake AuthPort: the middleware only calls ValidateToken,
+// so the other methods come from the embedded (nil) interface and would panic
+// if called.
 type mockAuthPort struct {
-	validateTokenFunc func(ctx context.Context, token string) (*domain.Claims, error)
-	getUserFunc       func(ctx context.Context, userID string) (*domain.User, error)
+	AuthPort
+	validateTokenFunc func(ctx context.Context, token string) (authcontract.ValidateTokenResponse, error)
 }
 
-func (m *mockAuthPort) ValidateToken(ctx context.Context, token string) (*domain.Claims, error) {
+func (m *mockAuthPort) ValidateToken(ctx context.Context, req authcontract.ValidateTokenRequest) (authcontract.ValidateTokenResponse, error) {
 	if m.validateTokenFunc != nil {
-		return m.validateTokenFunc(ctx, token)
+		return m.validateTokenFunc(ctx, req.Token)
 	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockAuthPort) GetUser(ctx context.Context, userID string) (*domain.User, error) {
-	if m.getUserFunc != nil {
-		return m.getUserFunc(ctx, userID)
-	}
-	return nil, errors.New("not implemented")
+	return authcontract.ValidateTokenResponse{}, errors.New("not implemented")
 }
 
 func TestAuthMiddleware(t *testing.T) {
@@ -63,11 +59,22 @@ func TestAuthMiddleware(t *testing.T) {
 			expectedBody:   `unauthorized`, // Fiber trims trailing spaces, so "Bearer " becomes "Bearer" which fails prefix check
 		},
 		{
+			name:       "transport error",
+			authHeader: "Bearer some-token",
+			mockAuth: &mockAuthPort{
+				validateTokenFunc: func(ctx context.Context, token string) (authcontract.ValidateTokenResponse, error) {
+					return authcontract.ValidateTokenResponse{}, errors.New("service unavailable")
+				},
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectedBody:   `"Invalid or expired token"`,
+		},
+		{
 			name:       "invalid token",
 			authHeader: "Bearer invalid-token",
 			mockAuth: &mockAuthPort{
-				validateTokenFunc: func(ctx context.Context, token string) (*domain.Claims, error) {
-					return nil, errors.New("invalid token")
+				validateTokenFunc: func(ctx context.Context, token string) (authcontract.ValidateTokenResponse, error) {
+					return authcontract.ValidateTokenResponse{Valid: false, Error: "invalid token"}, nil
 				},
 			},
 			expectedStatus: http.StatusUnauthorized,
@@ -77,8 +84,9 @@ func TestAuthMiddleware(t *testing.T) {
 			name:       "valid token",
 			authHeader: "Bearer valid-token",
 			mockAuth: &mockAuthPort{
-				validateTokenFunc: func(ctx context.Context, token string) (*domain.Claims, error) {
-					return &domain.Claims{
+				validateTokenFunc: func(ctx context.Context, token string) (authcontract.ValidateTokenResponse, error) {
+					return authcontract.ValidateTokenResponse{
+						Valid:  true,
 						UserID: "user-123",
 						Email:  "test@example.com",
 					}, nil
@@ -137,8 +145,9 @@ func TestAuthMiddleware(t *testing.T) {
 
 func TestAuthMiddleware_UserContext(t *testing.T) {
 	mockAuth := &mockAuthPort{
-		validateTokenFunc: func(ctx context.Context, token string) (*domain.Claims, error) {
-			return &domain.Claims{
+		validateTokenFunc: func(ctx context.Context, token string) (authcontract.ValidateTokenResponse, error) {
+			return authcontract.ValidateTokenResponse{
+				Valid:  true,
 				UserID: "user-456",
 				Email:  "context@example.com",
 			}, nil
@@ -149,9 +158,9 @@ func TestAuthMiddleware_UserContext(t *testing.T) {
 	app.Use(AuthMiddleware(mockAuth))
 
 	// Add endpoint that checks user context
-	var capturedClaims *domain.Claims
+	var capturedClaims *Claims
 	app.Get("/test", func(c *fiber.Ctx) error {
-		claims, ok := c.Locals(UserContextKey).(*domain.Claims)
+		claims, ok := c.Locals(UserContextKey).(*Claims)
 		if !ok {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "no claims"})
 		}

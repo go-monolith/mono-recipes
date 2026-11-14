@@ -2,23 +2,20 @@ package api
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/go-monolith/mono"
 	"github.com/go-monolith/mono/pkg/types"
 	"github.com/google/uuid"
+
+	"github.com/example/rate-limiting-middleware/modules/api/contract"
 )
 
-// Service names for the API module.
-const (
-	ServiceGetData     = "get-data"
-	ServiceCreateOrder = "create-order"
-	ServiceGetStatus   = "get-status"
-)
-
-// Module implements the API service module.
+// Module implements the API service module. Its services are rate limited by
+// the ratelimit middleware, which wraps every request-reply handler when the
+// module registers it; the module itself knows nothing about rate limiting.
 type Module struct {
 	startTime time.Time
 	logger    types.Logger
@@ -56,25 +53,22 @@ func (m *Module) Stop(_ context.Context) error {
 	return nil
 }
 
-// RegisterServices registers the API services.
+// RegisterServices binds the typed handlers to the module's own contracts.
+// Each registration goes through the middleware chain, so the ratelimit
+// middleware sees and wraps all three handlers.
 func (m *Module) RegisterServices(container mono.ServiceContainer) error {
-	services := []struct {
-		name    string
-		handler types.RequestReplyHandler
-	}{
-		{ServiceGetData, m.handleGetData},
-		{ServiceCreateOrder, m.handleCreateOrder},
-		{ServiceGetStatus, m.handleGetStatus},
+	if err := contract.GetData.Register(container, m.handleGetData); err != nil {
+		return fmt.Errorf("failed to register %s: %w", contract.GetData.Name, err)
 	}
-
-	for _, svc := range services {
-		if err := container.RegisterRequestReplyService(svc.name, svc.handler); err != nil {
-			return fmt.Errorf("failed to register %s: %w", svc.name, err)
-		}
+	if err := contract.CreateOrder.Register(container, m.handleCreateOrder); err != nil {
+		return fmt.Errorf("failed to register %s: %w", contract.CreateOrder.Name, err)
+	}
+	if err := contract.GetStatus.Register(container, m.handleGetStatus); err != nil {
+		return fmt.Errorf("failed to register %s: %w", contract.GetStatus.Name, err)
 	}
 
 	m.logger.Info("Registered API services",
-		"services", []string{ServiceGetData, ServiceCreateOrder, ServiceGetStatus})
+		"services", []string{contract.GetData.Subject(), contract.CreateOrder.Subject(), contract.GetStatus.Subject()})
 	return nil
 }
 
@@ -97,9 +91,9 @@ func (m *Module) Health(_ context.Context) mono.HealthStatus {
 }
 
 // handleGetData handles the get-data request.
-func (m *Module) handleGetData(_ context.Context, _ *types.Msg) ([]byte, error) {
+func (m *Module) handleGetData(_ context.Context, _ contract.GetDataRequest, _ *mono.Msg) (contract.DataResponse, error) {
 	// Simulate fetching data
-	response := DataResponse{
+	response := contract.DataResponse{
 		ID:        uuid.New().String()[:8],
 		Name:      "Sample Data",
 		Value:     42,
@@ -107,29 +101,24 @@ func (m *Module) handleGetData(_ context.Context, _ *types.Msg) ([]byte, error) 
 	}
 
 	m.logger.Debug("getData request handled", "id", response.ID)
-	return json.Marshal(response)
+	return response, nil
 }
 
 // handleCreateOrder handles the create-order request.
-func (m *Module) handleCreateOrder(_ context.Context, msg *types.Msg) ([]byte, error) {
-	var req OrderRequest
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		return nil, fmt.Errorf("invalid request: %w", err)
-	}
-
+func (m *Module) handleCreateOrder(_ context.Context, req contract.OrderRequest, _ *mono.Msg) (contract.OrderResponse, error) {
 	// Validate request
 	if req.ProductID == "" {
-		return nil, fmt.Errorf("product_id is required")
+		return contract.OrderResponse{}, errors.New("product_id is required")
 	}
 	if req.Quantity <= 0 {
-		return nil, fmt.Errorf("quantity must be positive")
+		return contract.OrderResponse{}, errors.New("quantity must be positive")
 	}
 	if req.Price <= 0 {
-		return nil, fmt.Errorf("price must be positive")
+		return contract.OrderResponse{}, errors.New("price must be positive")
 	}
 
 	// Simulate order creation
-	response := OrderResponse{
+	response := contract.OrderResponse{
 		OrderID:   uuid.New().String()[:8],
 		ProductID: req.ProductID,
 		Quantity:  req.Quantity,
@@ -141,14 +130,14 @@ func (m *Module) handleCreateOrder(_ context.Context, msg *types.Msg) ([]byte, e
 	m.logger.Debug("createOrder request handled",
 		"order_id", response.OrderID,
 		"product_id", response.ProductID)
-	return json.Marshal(response)
+	return response, nil
 }
 
 // handleGetStatus handles the get-status request.
-func (m *Module) handleGetStatus(_ context.Context, _ *types.Msg) ([]byte, error) {
+func (m *Module) handleGetStatus(_ context.Context, _ contract.GetStatusRequest, _ *mono.Msg) (contract.StatusResponse, error) {
 	uptime := time.Since(m.startTime)
 
-	response := StatusResponse{
+	response := contract.StatusResponse{
 		Service:   "rate-limiting-demo",
 		Status:    "healthy",
 		Uptime:    uptime.Round(time.Second).String(),
@@ -156,5 +145,5 @@ func (m *Module) handleGetStatus(_ context.Context, _ *types.Msg) ([]byte, error
 	}
 
 	m.logger.Debug("getStatus request handled", "uptime", response.Uptime)
-	return json.Marshal(response)
+	return response, nil
 }

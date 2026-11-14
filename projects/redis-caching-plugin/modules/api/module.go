@@ -4,25 +4,33 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 
-	productmod "github.com/example/redis-caching-demo/modules/product"
+	productcontract "github.com/example/redis-caching-demo/modules/product/contract"
 	"github.com/go-monolith/mono"
+	"github.com/go-monolith/mono/pkg/types"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 )
 
-// Module provides the HTTP API for the caching demo.
+// Module provides the HTTP API for the caching demo. It reaches the product
+// module only through ProductPort, whose adapter calls the product contracts.
 type Module struct {
-	app           *fiber.App
-	handlers      *Handlers
-	productModule *productmod.Module
-	port          int
+	app      *fiber.App
+	handlers *Handlers
+	products ProductPort
+	port     int
+	addr     string
 }
 
 // Compile-time interface checks.
-var _ mono.Module = (*Module)(nil)
+var (
+	_ mono.Module                 = (*Module)(nil)
+	_ mono.DependentModule        = (*Module)(nil)
+	_ types.ServiceConsumerModule = (*Module)(nil) // no mono.* alias in v0.1.1
+)
 
 // NewModule creates a new API module.
 func NewModule(port int) *Module {
@@ -36,9 +44,31 @@ func (m *Module) Name() string {
 	return "api"
 }
 
-// SetProductModule sets the product module dependency.
-func (m *Module) SetProductModule(pm *productmod.Module) {
-	m.productModule = pm
+// Dependencies declares the product module: it starts first, and its
+// container is handed to SetDependencyServiceContainer.
+func (m *Module) Dependencies() []string {
+	return []string{productcontract.ModuleName}
+}
+
+// SetDependencyServiceContainer wires the adapter behind ProductPort. The
+// container is a read-only view: only look services up on it.
+func (m *Module) SetDependencyServiceContainer(dependency string, container mono.ServiceContainer) {
+	if dependency == productcontract.ModuleName {
+		m.products = productAdapter{container: container}
+	}
+}
+
+// ConsumeServices declares every product contract the api module calls. The
+// framework validates the list at start: product must be a dependency, must
+// have registered each service, and the service kinds must match.
+func (m *Module) ConsumeServices() []types.BaseServiceDefinition {
+	return []types.BaseServiceDefinition{
+		productcontract.ListProducts.ToBase(),
+		productcontract.GetProduct.ToBase(),
+		productcontract.CreateProduct.ToBase(),
+		productcontract.UpdateProduct.ToBase(),
+		productcontract.DeleteProduct.ToBase(),
+	}
 }
 
 // Start initializes the Fiber app and starts the HTTP server.
@@ -57,25 +87,24 @@ func (m *Module) Start(_ context.Context) error {
 	}))
 	m.app.Use(cors.New())
 
-	// Create handlers with product service
-	if m.productModule == nil {
-		return fmt.Errorf("product module not set")
+	if m.products == nil {
+		return fmt.Errorf("product dependency not set - ensure the product module is registered")
 	}
-
-	service := m.productModule.GetService()
-	if service == nil {
-		return fmt.Errorf("product service not available")
-	}
-
-	m.handlers = NewHandlers(service)
+	m.handlers = NewHandlers(m.products)
 
 	// Setup routes
 	m.setupRoutes()
 
+	// Bind synchronously so a busy port fails Start instead of a goroutine.
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", m.port))
+	if err != nil {
+		return fmt.Errorf("failed to listen on port %d: %w", m.port, err)
+	}
+	m.addr = ln.Addr().String()
+
 	go func() {
-		addr := fmt.Sprintf(":%d", m.port)
-		log.Printf("[api] Starting HTTP server on %s", addr)
-		if err := m.app.Listen(addr); err != nil {
+		log.Printf("[api] Starting HTTP server on %s", m.addr)
+		if err := m.app.Listener(ln); err != nil {
 			log.Printf("[api] HTTP server error: %v", err)
 		}
 	}()
@@ -131,4 +160,9 @@ func (m *Module) errorHandler(c *fiber.Ctx, err error) error {
 // GetApp returns the Fiber app (for testing).
 func (m *Module) GetApp() *fiber.App {
 	return m.app
+}
+
+// Addr returns the address the HTTP server listens on (empty before Start).
+func (m *Module) Addr() string {
+	return m.addr
 }

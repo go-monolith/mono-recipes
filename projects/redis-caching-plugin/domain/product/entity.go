@@ -37,16 +37,3 @@ type UpdateProductRequest struct {
 	Stock       *int     `json:"stock,omitempty" validate:"omitempty,gte=0"`
 	Category    *string  `json:"category,omitempty" validate:"omitempty,max=100"`
 }
-
-// ProductResponse represents the response containing a product.
-type ProductResponse struct {
-	Product   *Product `json:"product"`
-	FromCache bool     `json:"from_cache"`
-}
-
-// ProductListResponse represents the response containing a list of products.
-type ProductListResponse struct {
-	Products  []Product `json:"products"`
-	Total     int64     `json:"total"`
-	FromCache bool      `json:"from_cache"`
-}

@@ -1,6 +1,6 @@
 # GORM + SQLite Recipe
 
-A demonstration project showcasing how to integrate GORM (Go ORM) with SQLite in a modular monolith application using the [go-monolith/mono](https://github.com/go-monolith/mono) framework.
+A demonstration project showcasing how to integrate GORM (Go ORM) with SQLite in a modular monolith application using the [go-monolith/mono](https://github.com/go-monolith/mono) framework (v0.1.1).
 
 This recipe demonstrates the **ServiceProviderModule** pattern for exposing CRUD services via the mono framework's request-reply mechanism, without any HTTP endpoints.
 
@@ -65,17 +65,28 @@ The mono framework uses NATS as its message bus. The `ServiceProviderModule` int
                                            └─────────────────┘
 ```
 
-### Service Registration
+### Service Contracts
+
+Each service is declared once, as a typed contract in `modules/product/contract`:
+
+```go
+// modules/product/contract/contract.go
+var CreateProduct = helper.RequestReplyService[CreateProductRequest, CreateProductResponse]("product", "create")
+```
+
+The module registers its handler through the contract (subject
+`services.product.create`, JSON encoding included):
 
 ```go
 // In RegisterServices():
-helper.RegisterTypedRequestReplyService(
-    container,
-    "product.create",     // NATS subject
-    json.Unmarshal,       // Request decoder
-    json.Marshal,         // Response encoder
-    m.createProduct,      // Handler function
-)
+contract.CreateProduct.Register(container, m.createProduct)
+```
+
+and any caller (another module's adapter, `main.go`, a test) calls through the
+same value:
+
+```go
+resp, err := contract.CreateProduct.Call(ctx, container, contract.CreateProductRequest{Name: "Widget", Price: 9.99})
 ```
 
 ### Service Handler
@@ -83,9 +94,9 @@ helper.RegisterTypedRequestReplyService(
 ```go
 func (m *ProductModule) createProduct(
     ctx context.Context,
-    req CreateProductRequest,
+    req contract.CreateProductRequest,
     msg *mono.Msg,
-) (CreateProductResponse, error) {
+) (contract.CreateProductResponse, error) {
     // Business logic here
     return response, nil
 }
@@ -98,11 +109,14 @@ gorm-sqlite-demo/
 ├── main.go                         # Application entry point
 ├── modules/
 │   └── product/
+│       ├── contract/
+│       │   └── contract.go         # Published port: DTOs + typed service contracts
 │       ├── module.go               # ServiceProviderModule implementation
-│       ├── entity.go               # GORM model definition
+│       ├── module_test.go          # monotest.CheckModule conformance test
+│       ├── entity.go               # GORM model definition (private to the module)
 │       ├── repository.go           # Data access layer
-│       ├── service.go              # Service handlers
-│       └── types.go                # Request/response types
+│       ├── repository_test.go      # Repository tests (in-memory SQLite)
+│       └── service.go              # Service handlers
 ├── go.mod
 ├── demo.sh                         # NATS CLI demo script
 └── README.md
@@ -112,17 +126,17 @@ gorm-sqlite-demo/
 
 | Service | Subject | Description |
 |---------|---------|-------------|
-| Create Product | `product.create` | Create a new product |
-| Get Product | `product.get` | Get product by ID |
-| List Products | `product.list` | List all products |
-| Update Product | `product.update` | Update product by ID |
-| Delete Product | `product.delete` | Delete product by ID |
+| Create Product | `services.product.create` | Create a new product |
+| Get Product | `services.product.get` | Get product by ID |
+| List Products | `services.product.list` | List all products |
+| Update Product | `services.product.update` | Update product by ID |
+| Delete Product | `services.product.delete` | Delete product by ID |
 
 ## Running the Application
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.25 or later
 - CGO enabled (required for SQLite)
 - NATS CLI (`nats` command) for the demo script
 
@@ -142,7 +156,7 @@ curl -sf https://binaries.nats.dev/nats-io/natscli/nats@latest | sh
 ### Build
 
 ```bash
-go build -o bin/gorm-sqlite-demo
+go build -o bin/gorm-sqlite-demo .
 ```
 
 ### Run
@@ -230,13 +244,15 @@ type Repository struct {
     db *gorm.DB
 }
 
-func (r *Repository) Create(product *Product) error {
-    return r.db.Create(product).Error
+// The handler's context is passed down so a query stops when the caller's
+// request deadline expires.
+func (r *Repository) Create(ctx context.Context, product *Product) error {
+    return r.db.WithContext(ctx).Create(product).Error
 }
 
-func (r *Repository) FindByID(id string) (*Product, error) {
+func (r *Repository) FindByID(ctx context.Context, id string) (*Product, error) {
     var product Product
-    err := r.db.First(&product, "id = ?", id).Error
+    err := r.db.WithContext(ctx).First(&product, "id = ?", id).Error
     if errors.Is(err, gorm.ErrRecordNotFound) {
         return nil, ErrNotFound
     }
@@ -250,14 +266,40 @@ func (r *Repository) FindByID(id string) (*Product, error) {
 var _ mono.ServiceProviderModule = (*ProductModule)(nil)
 
 func (m *ProductModule) RegisterServices(container mono.ServiceContainer) error {
-    return helper.RegisterTypedRequestReplyService(
-        container,
-        "product.create",
-        json.Unmarshal,
-        json.Marshal,
-        m.createProduct,
-    )
+    if err := contract.CreateProduct.Register(container, m.createProduct); err != nil {
+        return err
+    }
+    // ... get, list, update, delete
+    return nil
 }
+```
+
+### SQLite and Concurrent Requests
+
+Since mono v0.1.1, request-reply handlers run concurrently on a worker pool.
+SQLite allows a single writer at a time, so `Start` limits the GORM connection
+pool to one connection (`sqlDB.SetMaxOpenConns(1)`): concurrent requests queue
+in `database/sql` instead of contending for the database file lock.
+`TestProductModuleConcurrentRequests` covers this.
+
+## Module Boundaries
+
+The product module follows mono's Ports and Adapters rules:
+
+- `modules/product/contract` is the module's published port: request/response
+  DTOs and the typed contracts (`helper.RequestReplyService`). It imports only
+  the standard library and `mono/pkg/helper`; the GORM entity stays private.
+  It is the only package of the module other modules may import.
+- `RegisterServices` registers every handler through its contract, so no
+  service name is written as a string in module code. Service names and
+  subjects (`services.product.<service>`) are unchanged.
+- `main.go` runs with `mono.WithStrictModuleBoundaries()`, which rejects
+  boundary violations instead of only reporting them when the app stops.
+- `modules/product/module_test.go` runs `monotest.CheckModule` against a
+  temporary SQLite file and calls every contract:
+
+```bash
+go test ./modules/product/ -run Conformance -v
 ```
 
 ## Dependencies

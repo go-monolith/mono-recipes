@@ -36,13 +36,13 @@ func main() {
 	productModule := productmod.NewModule(dbPath)
 	apiModule := apimod.NewModule(httpPort)
 
-	// Wire up API module dependency (product module)
-	apiModule.SetProductModule(productModule)
-
-	// Create mono application
+	// Create mono application. The api module reaches the product module only
+	// through product/contract (declared in Dependencies and ConsumeServices),
+	// so strict module boundaries can be enforced.
 	app, err := mono.NewMonoApplication(
 		mono.WithShutdownTimeout(shutdownTimeout),
 		mono.WithLogLevel(mono.LogLevelInfo),
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create mono application: %v", err)
@@ -56,9 +56,13 @@ func main() {
 	}
 
 	// Register regular modules
-	// Product module implements UsePluginModule and will receive the cache plugin
-	app.Register(productModule)
-	app.Register(apiModule)
+	// Product module implements UsePluginModule and will receive the cache plugin.
+	// API module declares product as a dependency, so product starts first.
+	for _, m := range []mono.Module{productModule, apiModule} {
+		if err := app.Register(m); err != nil {
+			log.Fatalf("Failed to register %s module: %v", m.Name(), err)
+		}
+	}
 
 	// Start the application (handles all module lifecycle)
 	ctx := context.Background()

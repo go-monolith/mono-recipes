@@ -1,10 +1,12 @@
 package api
 
 import (
+	"errors"
 	"strconv"
 
-	"github.com/example/background-jobs-demo/domain/job"
 	"github.com/gofiber/fiber/v2"
+
+	workercontract "github.com/example/background-jobs-demo/modules/worker/contract"
 )
 
 // Handler handles HTTP requests for job management.
@@ -72,28 +74,21 @@ func (h *Handler) CreateJob(c *fiber.Ctx) error {
 		})
 	}
 
-	// Convert to domain request
-	jobReq := &job.CreateJobRequest{
-		Type:     job.JobType(req.Type),
-		Payload:  req.Payload,
-		Priority: req.Priority,
-	}
-
-	// Create job
-	j, err := h.service.CreateJob(c.Context(), jobReq)
+	// Create job (recorded and enqueued by the worker module)
+	j, err := h.service.CreateJob(c.UserContext(), req.Type, req.Payload, req.Priority)
 	if err != nil {
-		switch err {
-		case job.ErrInvalidJobType:
+		switch {
+		case errors.Is(err, ErrInvalidJobType):
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 				Error:   "invalid_job_type",
 				Message: "Invalid job type. Valid types: email, image_processing, report_generation",
 			})
-		case job.ErrInvalidPayload:
+		case errors.Is(err, ErrInvalidPayload):
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 				Error:   "invalid_payload",
 				Message: err.Error(),
 			})
-		case job.ErrQueueUnavailable:
+		case errors.Is(err, ErrQueueUnavailable):
 			return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
 				Error:   "queue_unavailable",
 				Message: "Job queue is currently unavailable",
@@ -119,9 +114,9 @@ func (h *Handler) GetJob(c *fiber.Ctx) error {
 		})
 	}
 
-	j, err := h.service.GetJob(id)
+	j, err := h.service.GetJob(c.UserContext(), id)
 	if err != nil {
-		if err == job.ErrJobNotFound {
+		if errors.Is(err, ErrJobNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 				Error:   "not_found",
 				Message: "Job not found",
@@ -139,8 +134,8 @@ func (h *Handler) GetJob(c *fiber.Ctx) error {
 // ListJobs handles GET /api/v1/jobs
 func (h *Handler) ListJobs(c *fiber.Ctx) error {
 	// Parse query parameters
-	status := job.JobStatus(c.Query("status"))
-	jobType := job.JobType(c.Query("type"))
+	status := c.Query("status")
+	jobType := c.Query("type")
 
 	limit, _ := strconv.Atoi(c.Query("limit", "50"))
 	if limit <= 0 || limit > 100 {
@@ -153,12 +148,18 @@ func (h *Handler) ListJobs(c *fiber.Ctx) error {
 	}
 
 	// List jobs
-	jobs := h.service.ListJobs(status, jobType, limit, offset)
+	jobs, err := h.service.ListJobs(c.UserContext(), status, jobType, limit, offset)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error:   "internal_error",
+			Message: "Failed to list jobs",
+		})
+	}
 
 	// Convert to response
 	response := make([]*JobResponse, len(jobs))
-	for i, j := range jobs {
-		response[i] = h.toJobResponse(j)
+	for i := range jobs {
+		response[i] = h.toJobResponse(&jobs[i])
 	}
 
 	return c.JSON(fiber.Map{
@@ -173,11 +174,11 @@ func (h *Handler) ListJobs(c *fiber.Ctx) error {
 const RFC3339 = "2006-01-02T15:04:05Z07:00"
 
 // toJobResponse converts a job to its response format.
-func (h *Handler) toJobResponse(j *job.Job) *JobResponse {
+func (h *Handler) toJobResponse(j *workercontract.Job) *JobResponse {
 	resp := &JobResponse{
 		ID:              j.ID,
-		Type:            string(j.Type),
-		Status:          string(j.Status),
+		Type:            j.Type,
+		Status:          j.Status,
 		Priority:        j.Priority,
 		Payload:         j.Payload,
 		Result:          j.Result,

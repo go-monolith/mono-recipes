@@ -15,9 +15,9 @@ type FileInfo struct {
 
 // UploadResult represents the result of a file upload operation.
 type UploadResult struct {
-	FileInfo  FileInfo `json:"file"`
-	Message   string   `json:"message"`
-	DurationMs int64   `json:"duration_ms"`
+	FileInfo   FileInfo `json:"file"`
+	Message    string   `json:"message"`
+	DurationMs int64    `json:"duration_ms"`
 }
 
 // ListResult represents the result of a file listing operation.

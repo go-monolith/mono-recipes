@@ -5,17 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
+
+	"github.com/example/python-nats-client-demo/modules/payment/contract"
 )
 
-const (
-	// StreamName is the JetStream stream name for payment requests.
-	StreamName = "payment-requests"
-	// ServiceName is the stream consumer service name.
-	ServiceName = "payment-process"
-)
+// StreamName is the JetStream stream name for payment requests.
+const StreamName = "payment-requests"
 
 // PaymentModule provides payment processing via StreamConsumerService
 // and status queries via RequestReplyService.
@@ -41,40 +39,55 @@ func (m *PaymentModule) Name() string {
 	return "payment"
 }
 
-// RegisterServices registers both the StreamConsumerService for payment processing
-// and a RequestReplyService for status queries.
+// RegisterServices binds both handlers to the module's own contracts: the
+// StreamConsumerService for durable payment processing and the
+// RequestReplyService for status queries.
 func (m *PaymentModule) RegisterServices(container mono.ServiceContainer) error {
-	// Register StreamConsumerService for durable payment processing
-	// The stream subject must match what Python clients publish to
-	streamSubject := "services.payment." + ServiceName
+	// The stream subject comes from the contract, so it is exactly the
+	// subject Python clients publish to (services.payment.payment-process).
 	config := mono.StreamConsumerConfig{
 		Stream: mono.StreamConfig{
 			Name:      StreamName,
-			Subjects:  []string{streamSubject},
+			Subjects:  []string{contract.ProcessPayment.Subject()},
 			Retention: mono.WorkQueuePolicy,
 		},
 		Fetch: mono.FetchConfig{
 			BatchSize: 5,
+			// A fetch returns when the batch is full or after Timeout
+			// (default 5s). Keep it short so a few payments are processed
+			// within the 2s demo.py waits before querying their status.
+			Timeout: time.Second,
 		},
 	}
 
-	if err := container.RegisterStreamConsumerService(
-		ServiceName,
-		config,
-		m.handlePayments,
-	); err != nil {
+	if err := contract.ProcessPayment.WithUnmarshaler(decodePaymentOrZero).
+		Register(container, config, m.handlePayments); err != nil {
 		return fmt.Errorf("failed to register stream consumer service: %w", err)
 	}
 
-	// Register RequestReplyService for status queries
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "status", json.Unmarshal, json.Marshal, m.getStatus,
-	); err != nil {
+	if err := contract.Status.Register(container, m.getStatus); err != nil {
 		return fmt.Errorf("failed to register status service: %w", err)
 	}
 
-	log.Printf("[payment] Registered StreamConsumerService: services.payment.%s (stream: %s)", ServiceName, StreamName)
-	log.Printf("[payment] Registered RequestReplyService: services.payment.status")
+	log.Printf("[payment] Registered StreamConsumerService: %s (stream: %s)", contract.ProcessPayment.Subject(), StreamName)
+	log.Printf("[payment] Registered RequestReplyService: %s", contract.Status.Subject())
+	return nil
+}
+
+// decodePaymentOrZero is the provider-side decoder of the payment stream.
+//
+// The typed stream consumer fails the whole batch when one message does not
+// decode, leaving every message of the batch unacknowledged until redelivery.
+// A malformed message published by a client would then hold up the valid
+// ones. Instead, a message that does not decode becomes a zero
+// PaymentRequest, which handlePayments terminates (no payment_id).
+func decodePaymentOrZero(data []byte, v any) error {
+	if err := json.Unmarshal(data, v); err != nil {
+		log.Printf("[payment] Malformed payment request: %v", err)
+		if req, ok := v.(*contract.PaymentRequest); ok {
+			*req = contract.PaymentRequest{}
+		}
+	}
 	return nil
 }
 

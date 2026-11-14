@@ -1,29 +1,22 @@
 package api
 
 import (
-	"encoding/json"
 	"log"
 	"strings"
 
-	domain "github.com/example/jwt-auth-demo/domain/user"
-	"github.com/example/jwt-auth-demo/modules/auth"
-	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
 	"github.com/gofiber/fiber/v2"
+
+	authcontract "github.com/example/jwt-auth-demo/modules/auth/contract"
 )
 
 // Handlers contains HTTP handlers for the API.
 type Handlers struct {
-	authContainer mono.ServiceContainer
-	authAdapter   auth.AuthPort
+	auth AuthPort
 }
 
 // NewHandlers creates a new Handlers instance.
-func NewHandlers(authContainer mono.ServiceContainer, authAdapter auth.AuthPort) *Handlers {
-	return &Handlers{
-		authContainer: authContainer,
-		authAdapter:   authAdapter,
-	}
+func NewHandlers(auth AuthPort) *Handlers {
+	return &Handlers{auth: auth}
 }
 
 // Register handles user registration.
@@ -44,21 +37,11 @@ func (h *Handlers) Register(c *fiber.Ctx) error {
 	}
 
 	// Call auth service
-	authReq := auth.RegisterRequest{
+	resp, err := h.auth.Register(c.UserContext(), authcontract.RegisterRequest{
 		Email:    req.Email,
 		Password: req.Password,
-	}
-	var resp auth.RegisterResponse
-
-	if err := helper.CallRequestReplyService(
-		c.UserContext(),
-		h.authContainer,
-		"register",
-		json.Marshal,
-		json.Unmarshal,
-		&authReq,
-		&resp,
-	); err != nil {
+	})
+	if err != nil {
 		return h.handleAuthError(c, err)
 	}
 
@@ -87,21 +70,11 @@ func (h *Handlers) Login(c *fiber.Ctx) error {
 	}
 
 	// Call auth service
-	authReq := auth.LoginRequest{
+	resp, err := h.auth.Login(c.UserContext(), authcontract.LoginRequest{
 		Email:    req.Email,
 		Password: req.Password,
-	}
-	var resp auth.LoginResponse
-
-	if err := helper.CallRequestReplyService(
-		c.UserContext(),
-		h.authContainer,
-		"login",
-		json.Marshal,
-		json.Unmarshal,
-		&authReq,
-		&resp,
-	); err != nil {
+	})
+	if err != nil {
 		return h.handleAuthError(c, err)
 	}
 
@@ -131,20 +104,10 @@ func (h *Handlers) Refresh(c *fiber.Ctx) error {
 	}
 
 	// Call auth service
-	authReq := auth.RefreshRequest{
+	resp, err := h.auth.RefreshToken(c.UserContext(), authcontract.RefreshRequest{
 		RefreshToken: req.RefreshToken,
-	}
-	var resp auth.RefreshResponse
-
-	if err := helper.CallRequestReplyService(
-		c.UserContext(),
-		h.authContainer,
-		"refresh-token",
-		json.Marshal,
-		json.Unmarshal,
-		&authReq,
-		&resp,
-	); err != nil {
+	})
+	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
 			Error:   "unauthorized",
 			Message: "Invalid or expired refresh token",
@@ -163,7 +126,7 @@ func (h *Handlers) Refresh(c *fiber.Ctx) error {
 // This is a protected endpoint that requires a valid JWT token.
 func (h *Handlers) Profile(c *fiber.Ctx) error {
 	// Get user claims from context (set by auth middleware)
-	claims, ok := c.Locals(UserContextKey).(*domain.Claims)
+	claims, ok := c.Locals(UserContextKey).(*Claims)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
 			Error:   "unauthorized",
@@ -172,7 +135,7 @@ func (h *Handlers) Profile(c *fiber.Ctx) error {
 	}
 
 	// Get full user details from auth service
-	user, err := h.authAdapter.GetUser(c.UserContext(), claims.UserID)
+	user, err := h.auth.GetUser(c.UserContext(), authcontract.GetUserRequest{UserID: claims.UserID})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error:   "internal_error",

@@ -7,6 +7,8 @@ import (
 	"github.com/example/sqlc-postgres-demo/modules/user/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/example/sqlc-postgres-demo/modules/user/contract"
 )
 
 // Validation errors.
@@ -23,15 +25,15 @@ var (
 // an abstraction rather than a concrete implementation.
 type UserService interface {
 	// Create creates a new user with the given name and email.
-	Create(ctx context.Context, req CreateUserRequest) (UserResponse, error)
+	Create(ctx context.Context, req contract.CreateUserRequest) (contract.UserResponse, error)
 	// Get retrieves a user by ID.
-	Get(ctx context.Context, req GetUserRequest) (UserResponse, error)
+	Get(ctx context.Context, req contract.GetUserRequest) (contract.UserResponse, error)
 	// List retrieves paginated users.
-	List(ctx context.Context, req ListUsersRequest) (ListUsersResponse, error)
+	List(ctx context.Context, req contract.ListUsersRequest) (contract.ListUsersResponse, error)
 	// Update updates an existing user.
-	Update(ctx context.Context, req UpdateUserRequest) (UserResponse, error)
+	Update(ctx context.Context, req contract.UpdateUserRequest) (contract.UserResponse, error)
 	// Delete removes a user by ID.
-	Delete(ctx context.Context, req DeleteUserRequest) (DeleteUserResponse, error)
+	Delete(ctx context.Context, req contract.DeleteUserRequest) (contract.DeleteUserResponse, error)
 }
 
 // UserServiceImpl implements UserService using a UserRepository.
@@ -52,62 +54,62 @@ func NewUserService(repo UserRepository) UserService {
 }
 
 // Create handles the user creation request.
-func (s *UserServiceImpl) Create(ctx context.Context, req CreateUserRequest) (UserResponse, error) {
+func (s *UserServiceImpl) Create(ctx context.Context, req contract.CreateUserRequest) (contract.UserResponse, error) {
 	if req.Name == "" {
-		return UserResponse{}, errNameRequired
+		return contract.UserResponse{}, errNameRequired
 	}
 	if req.Email == "" {
-		return UserResponse{}, errEmailRequired
+		return contract.UserResponse{}, errEmailRequired
 	}
 
 	user, err := s.repo.Create(ctx, req.Name, req.Email)
 	if err != nil {
-		return UserResponse{}, err
+		return contract.UserResponse{}, err
 	}
 
 	return toUserResponse(user), nil
 }
 
 // Get handles the user retrieval request.
-func (s *UserServiceImpl) Get(ctx context.Context, req GetUserRequest) (UserResponse, error) {
+func (s *UserServiceImpl) Get(ctx context.Context, req contract.GetUserRequest) (contract.UserResponse, error) {
 	if req.ID == "" {
-		return UserResponse{}, errIDRequired
+		return contract.UserResponse{}, errIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return UserResponse{}, errIDInvalid
+		return contract.UserResponse{}, errIDInvalid
 	}
 
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return UserResponse{}, err
+		return contract.UserResponse{}, err
 	}
 
 	return toUserResponse(user), nil
 }
 
 // List handles the user list request with pagination.
-func (s *UserServiceImpl) List(ctx context.Context, req ListUsersRequest) (ListUsersResponse, error) {
+func (s *UserServiceImpl) List(ctx context.Context, req contract.ListUsersRequest) (contract.ListUsersResponse, error) {
 	limit := clampLimit(req.Limit)
 	offset := clampOffset(req.Offset)
 
 	users, err := s.repo.FindAll(ctx, limit, offset)
 	if err != nil {
-		return ListUsersResponse{}, err
+		return contract.ListUsersResponse{}, err
 	}
 
 	total, err := s.repo.Count(ctx)
 	if err != nil {
-		return ListUsersResponse{}, err
+		return contract.ListUsersResponse{}, err
 	}
 
-	userResponses := make([]UserResponse, len(users))
+	userResponses := make([]contract.UserResponse, len(users))
 	for i := range users {
 		userResponses[i] = toUserResponse(&users[i])
 	}
 
-	return ListUsersResponse{
+	return contract.ListUsersResponse{
 		Users:  userResponses,
 		Total:  total,
 		Limit:  limit,
@@ -116,48 +118,48 @@ func (s *UserServiceImpl) List(ctx context.Context, req ListUsersRequest) (ListU
 }
 
 // Update handles the user update request.
-func (s *UserServiceImpl) Update(ctx context.Context, req UpdateUserRequest) (UserResponse, error) {
+func (s *UserServiceImpl) Update(ctx context.Context, req contract.UpdateUserRequest) (contract.UserResponse, error) {
 	if req.ID == "" {
-		return UserResponse{}, errIDRequired
+		return contract.UserResponse{}, errIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return UserResponse{}, errIDInvalid
+		return contract.UserResponse{}, errIDInvalid
 	}
 
 	// Validate non-empty values when pointers are provided
 	if req.Name != nil && *req.Name == "" {
-		return UserResponse{}, errNameRequired
+		return contract.UserResponse{}, errNameRequired
 	}
 	if req.Email != nil && *req.Email == "" {
-		return UserResponse{}, errEmailRequired
+		return contract.UserResponse{}, errEmailRequired
 	}
 
 	user, err := s.repo.Update(ctx, id, req.Name, req.Email)
 	if err != nil {
-		return UserResponse{}, err
+		return contract.UserResponse{}, err
 	}
 
 	return toUserResponse(user), nil
 }
 
 // Delete handles the user deletion request.
-func (s *UserServiceImpl) Delete(ctx context.Context, req DeleteUserRequest) (DeleteUserResponse, error) {
+func (s *UserServiceImpl) Delete(ctx context.Context, req contract.DeleteUserRequest) (contract.DeleteUserResponse, error) {
 	if req.ID == "" {
-		return DeleteUserResponse{}, errIDRequired
+		return contract.DeleteUserResponse{}, errIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return DeleteUserResponse{}, errIDInvalid
+		return contract.DeleteUserResponse{}, errIDInvalid
 	}
 
 	if err := s.repo.Delete(ctx, id); err != nil {
-		return DeleteUserResponse{ID: req.ID}, err
+		return contract.DeleteUserResponse{ID: req.ID}, err
 	}
 
-	return DeleteUserResponse{Deleted: true, ID: req.ID}, nil
+	return contract.DeleteUserResponse{Deleted: true, ID: req.ID}, nil
 }
 
 // clampLimit ensures limit is within valid bounds (1-100, default 10).
@@ -179,8 +181,8 @@ func clampOffset(offset int32) int32 {
 	return offset
 }
 
-func toUserResponse(user *generated.User) UserResponse {
-	return UserResponse{
+func toUserResponse(user *generated.User) contract.UserResponse {
+	return contract.UserResponse{
 		ID:        uuidToString(user.ID),
 		Name:      user.Name,
 		Email:     user.Email,

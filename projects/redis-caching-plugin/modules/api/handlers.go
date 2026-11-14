@@ -1,25 +1,34 @@
 package api
 
 import (
+	"context"
 	"log"
 	"strconv"
 	"time"
 
-	"github.com/example/redis-caching-demo/domain/product"
-	productmod "github.com/example/redis-caching-demo/modules/product"
+	productcontract "github.com/example/redis-caching-demo/modules/product/contract"
 	"github.com/gofiber/fiber/v2"
 )
 
+// requestTimeout bounds each call to the product module. The deadline is
+// propagated to the product service handler.
+const requestTimeout = 5 * time.Second
+
 // Handlers provides HTTP handlers for the API.
 type Handlers struct {
-	productService *productmod.Service
+	products ProductPort
 }
 
-// NewHandlers creates a new handlers instance.
-func NewHandlers(productService *productmod.Service) *Handlers {
+// NewHandlers creates a new handlers instance on top of the product port.
+func NewHandlers(products ProductPort) *Handlers {
 	return &Handlers{
-		productService: productService,
+		products: products,
 	}
+}
+
+// callContext derives the context for one product call from the request.
+func callContext(c *fiber.Ctx) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(c.UserContext(), requestTimeout)
 }
 
 // ListProducts handles GET /api/v1/products.
@@ -27,8 +36,11 @@ func (h *Handlers) ListProducts(c *fiber.Ctx) error {
 	offset := max(c.QueryInt("offset", 0), 0)
 	limit := min(max(c.QueryInt("limit", 20), 1), 100)
 
+	ctx, cancel := callContext(c)
+	defer cancel()
+
 	start := time.Now()
-	products, total, fromCache, err := h.productService.List(c.Context(), offset, limit)
+	resp, err := h.products.ListProducts(ctx, productcontract.ListProductsRequest{Offset: offset, Limit: limit})
 	duration := time.Since(start)
 
 	if err != nil {
@@ -40,11 +52,11 @@ func (h *Handlers) ListProducts(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"products":    products,
-		"total":       total,
+		"products":    resp.Products,
+		"total":       resp.Total,
 		"offset":      offset,
 		"limit":       limit,
-		"from_cache":  fromCache,
+		"from_cache":  resp.FromCache,
 		"duration_ms": duration.Milliseconds(),
 	})
 }
@@ -60,8 +72,11 @@ func (h *Handlers) GetProduct(c *fiber.Ctx) error {
 		})
 	}
 
+	ctx, cancel := callContext(c)
+	defer cancel()
+
 	start := time.Now()
-	p, fromCache, err := h.productService.GetByID(c.Context(), uint(id))
+	resp, err := h.products.GetProduct(ctx, productcontract.GetProductRequest{ID: uint(id)})
 	duration := time.Since(start)
 
 	if err != nil {
@@ -72,7 +87,7 @@ func (h *Handlers) GetProduct(c *fiber.Ctx) error {
 		})
 	}
 
-	if p == nil {
+	if !resp.Found {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error":   "Not Found",
 			"message": "Product not found",
@@ -80,15 +95,15 @@ func (h *Handlers) GetProduct(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"product":     p,
-		"from_cache":  fromCache,
+		"product":     resp.Product,
+		"from_cache":  resp.FromCache,
 		"duration_ms": duration.Milliseconds(),
 	})
 }
 
 // CreateProduct handles POST /api/v1/products.
 func (h *Handlers) CreateProduct(c *fiber.Ctx) error {
-	var req product.CreateProductRequest
+	var req productcontract.CreateProductRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "Bad Request",
@@ -110,7 +125,10 @@ func (h *Handlers) CreateProduct(c *fiber.Ctx) error {
 		})
 	}
 
-	p, err := h.productService.Create(c.Context(), &req)
+	ctx, cancel := callContext(c)
+	defer cancel()
+
+	resp, err := h.products.CreateProduct(ctx, req)
 	if err != nil {
 		log.Printf("[api] Error creating product: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -120,7 +138,7 @@ func (h *Handlers) CreateProduct(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"product": p,
+		"product": resp.Product,
 		"message": "Product created successfully",
 	})
 }
@@ -136,7 +154,7 @@ func (h *Handlers) UpdateProduct(c *fiber.Ctx) error {
 		})
 	}
 
-	var req product.UpdateProductRequest
+	var req productcontract.UpdateProductRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "Bad Request",
@@ -144,7 +162,12 @@ func (h *Handlers) UpdateProduct(c *fiber.Ctx) error {
 		})
 	}
 
-	p, err := h.productService.Update(c.Context(), uint(id), &req)
+	req.ID = uint(id) // the path parameter wins over any "id" in the body
+
+	ctx, cancel := callContext(c)
+	defer cancel()
+
+	resp, err := h.products.UpdateProduct(ctx, req)
 	if err != nil {
 		log.Printf("[api] Error updating product ID=%d: %v", id, err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -153,7 +176,7 @@ func (h *Handlers) UpdateProduct(c *fiber.Ctx) error {
 		})
 	}
 
-	if p == nil {
+	if !resp.Found {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error":   "Not Found",
 			"message": "Product not found",
@@ -161,7 +184,7 @@ func (h *Handlers) UpdateProduct(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"product": p,
+		"product": resp.Product,
 		"message": "Product updated successfully, cache invalidated",
 	})
 }
@@ -177,7 +200,10 @@ func (h *Handlers) DeleteProduct(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.productService.Delete(c.Context(), uint(id)); err != nil {
+	ctx, cancel := callContext(c)
+	defer cancel()
+
+	if _, err := h.products.DeleteProduct(ctx, productcontract.DeleteProductRequest{ID: uint(id)}); err != nil {
 		log.Printf("[api] Error deleting product ID=%d: %v", id, err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Internal Server Error",

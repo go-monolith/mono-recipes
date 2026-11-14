@@ -42,6 +42,13 @@ type ProfileResponse struct {
 	Message   string    `json:"message"`
 }
 
+// Claims identifies the authenticated caller; AuthMiddleware stores a *Claims
+// in c.Locals(UserContextKey).
+type Claims struct {
+	UserID string
+	Email  string
+}
+
 // ErrorResponse represents an error response.
 type ErrorResponse struct {
 	Error   string `json:"error"`

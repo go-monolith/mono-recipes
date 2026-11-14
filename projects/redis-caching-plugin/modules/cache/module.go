@@ -37,12 +37,25 @@ func NewPluginModule(redisAddr string) *PluginModule {
 }
 
 // NewPluginModuleWithConfig creates a new cache plugin module with custom configuration.
-// The Redis storage is created immediately so Port() can be called before Start().
+// The Redis connection is opened in Start, so Port() returns nil until the
+// plugin has started. Consumers should keep the plugin from SetPlugin and
+// resolve Port() in their own Start (plugins start before regular modules).
 func NewPluginModuleWithConfig(redisAddr, prefix string, ttl time.Duration) *PluginModule {
 	return &PluginModule{
 		redisAddr: redisAddr,
 		prefix:    prefix,
 		ttl:       ttl,
+	}
+}
+
+// NewPluginModuleWithStorage creates a cache plugin backed by the given
+// storage.Storage instead of Redis (for example an in-memory store in tests).
+// The storage is wrapped into the CacheService port in Start, like Redis.
+func NewPluginModuleWithStorage(s storage.Storage, prefix string, ttl time.Duration) *PluginModule {
+	return &PluginModule{
+		storage: s,
+		prefix:  prefix,
+		ttl:     ttl,
 	}
 }
 
@@ -58,15 +71,17 @@ func (m *PluginModule) Name() string {
 // Start is called by the mono framework when starting the plugin.
 // Plugins start before regular modules.
 func (m *PluginModule) Start(_ context.Context) error {
-	// Parse host:port from redisAddr
-	host, port := parseRedisAddr(m.redisAddr)
-	m.storage = redis.New(redis.Config{
-		Host:     host,
-		Port:     port,
-		PoolSize: 50,
-	})
+	if m.storage == nil {
+		// Parse host:port from redisAddr
+		host, port := parseRedisAddr(m.redisAddr)
+		m.storage = redis.New(redis.Config{
+			Host:     host,
+			Port:     port,
+			PoolSize: 50,
+		})
+		log.Printf("[cache] Connected to Redis at %s (prefix: %s, TTL: %s)", m.redisAddr, m.prefix, m.ttl)
+	}
 	m.service = NewCacheService(m.storage, m.prefix, m.ttl)
-	log.Printf("[cache] Connected to Redis at %s (prefix: %s, TTL: %s)", m.redisAddr, m.prefix, m.ttl)
 	log.Println("[cache] Plugin started")
 	return nil
 }
@@ -103,7 +118,7 @@ func (m *PluginModule) Container() types.ServiceContainer {
 // ============================================================
 
 // Port returns the CacheService interface for consumers.
-// This is the public API that other modules use.
+// This is the public API that other modules use. It is nil before Start.
 func (m *PluginModule) Port() CacheService {
 	return m.service
 }

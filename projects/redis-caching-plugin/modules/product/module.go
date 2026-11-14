@@ -7,24 +7,34 @@ import (
 
 	"github.com/example/redis-caching-demo/domain/product"
 	"github.com/example/redis-caching-demo/modules/cache"
+	"github.com/example/redis-caching-demo/modules/product/contract"
 	"github.com/go-monolith/mono"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-// Module provides product services as a mono module.
+// cachePortProvider is what the product module needs from the "cache" plugin:
+// something that hands out the CacheService port. *cache.PluginModule
+// implements it.
+type cachePortProvider interface {
+	Port() cache.CacheService
+}
+
+// Module provides product services as a mono module. Other modules reach it
+// only through the typed contracts in modules/product/contract.
 type Module struct {
-	db      *gorm.DB
-	repo    *product.Repository
-	service *Service
-	cache   cache.CacheService
-	dbPath  string
+	db          *gorm.DB
+	repo        *product.Repository
+	service     *Service
+	cachePlugin cachePortProvider
+	dbPath      string
 }
 
 // Compile-time interface checks.
 var (
 	_ mono.Module                = (*Module)(nil)
+	_ mono.ServiceProviderModule = (*Module)(nil)
 	_ mono.HealthCheckableModule = (*Module)(nil)
 	_ mono.UsePluginModule       = (*Module)(nil)
 )
@@ -38,26 +48,56 @@ func NewModule(dbPath string) *Module {
 
 // Name returns the module name.
 func (m *Module) Name() string {
-	return "product"
+	return contract.ModuleName
 }
 
 // SetPlugin receives plugin instances from the mono framework.
-// This is called before Start() to inject plugin dependencies.
+// It is called before RegisterServices and Start. Only the plugin reference is
+// stored here: the plugin's port is resolved in Start, so the module never
+// depends on whether (or in which order) the plugin itself was started.
 func (m *Module) SetPlugin(alias string, plugin mono.PluginModule) {
-	if alias == "cache" {
-		// Type assert to cache.PluginModule to access Port()
-		if cachePlugin, ok := plugin.(*cache.PluginModule); ok {
-			m.cache = cachePlugin.Port()
-			log.Println("[product] Cache plugin injected")
-		}
+	if alias != "cache" {
+		return
 	}
+	if p, ok := plugin.(cachePortProvider); ok {
+		m.cachePlugin = p
+		log.Println("[product] Cache plugin injected")
+	}
+}
+
+// RegisterServices is the driving adapter: it binds the typed handlers in
+// handlers.go to the module's own contracts. The handlers use m.service, which
+// is created in Start; the framework dispatches services only after every
+// module has started.
+func (m *Module) RegisterServices(container mono.ServiceContainer) error {
+	if err := contract.ListProducts.Register(container, m.listProducts); err != nil {
+		return err
+	}
+	if err := contract.GetProduct.Register(container, m.getProduct); err != nil {
+		return err
+	}
+	if err := contract.CreateProduct.Register(container, m.createProduct); err != nil {
+		return err
+	}
+	if err := contract.UpdateProduct.Register(container, m.updateProduct); err != nil {
+		return err
+	}
+	if err := contract.DeleteProduct.Register(container, m.deleteProduct); err != nil {
+		return err
+	}
+	log.Println("[product] Registered services: list-products, get-product, create-product, update-product, delete-product")
+	return nil
 }
 
 // Start initializes the database and creates the service.
 func (m *Module) Start(_ context.Context) error {
-	// Verify cache plugin was injected
-	if m.cache == nil {
+	// Resolve the cache port now that the plugin has started.
+	if m.cachePlugin == nil {
 		return fmt.Errorf("cache plugin not set - ensure 'cache' plugin is registered")
+	}
+	cacheService := m.cachePlugin.Port()
+	if cacheService == nil {
+		return fmt.Errorf("cache plugin is not started - its port is not available")
 	}
 
 	// Open SQLite database
@@ -77,7 +117,7 @@ func (m *Module) Start(_ context.Context) error {
 	}
 
 	// Create service with cache
-	m.service = NewService(m.repo, m.cache)
+	m.service = NewService(m.repo, cacheService)
 
 	log.Printf("[product] Database initialized at %s", m.dbPath)
 	log.Println("[product] Module started")
@@ -94,16 +134,6 @@ func (m *Module) Stop(_ context.Context) error {
 	}
 	log.Println("[product] Module stopped")
 	return nil
-}
-
-// GetService returns the product service.
-func (m *Module) GetService() *Service {
-	return m.service
-}
-
-// GetRepository returns the product repository.
-func (m *Module) GetRepository() *product.Repository {
-	return m.repo
 }
 
 // Health returns the current health status.

@@ -113,14 +113,14 @@ echo ""
 # Build the application
 print_header "Building Application"
 print_info "Compiling Go application..."
-go build -o bin/prisma-postgres-demo .
+go build -o bin/prisma-postgres-multiple-schemas-demo .
 print_success "Build successful!"
 echo ""
 
 # Start the application
 print_header "Starting Application"
 print_info "Starting mono application..."
-./bin/prisma-postgres-demo &
+./bin/prisma-postgres-multiple-schemas-demo &
 APP_PID=$!
 
 sleep 3

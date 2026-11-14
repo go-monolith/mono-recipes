@@ -1,12 +1,12 @@
 # Node.js NATS Client Demo with fs-jetstream
 
-This recipe demonstrates **polyglot microservices interoperability** between Node.js clients and Go-based Mono applications via NATS messaging. It showcases file storage operations using the built-in `fs-jetstream` plugin and real-time object store watching.
+This recipe demonstrates **polyglot microservices interoperability** between Node.js clients and Go-based Mono applications (mono **v0.1.1**) via NATS messaging. It showcases file storage operations using the built-in `fs-jetstream` plugin and real-time object store watching.
 
 ## What This Demonstrates
 
 - **Node.js + Go Interoperability**: Seamless interaction between Node.js clients and Mono services via NATS
 - **fs-jetstream Plugin**: File storage with JetStream object store
-- **Service Patterns**: RequestReplyService (file.save) and QueueGroupService (file.archive)
+- **Service Patterns**: RequestReplyService (`services.fileops.save`) and QueueGroupService (`services.fileops.archive`), declared as typed contracts
 - **Real-time Monitoring**: Object store watching from Node.js to monitor bucket changes
 - **UsePluginModule**: Proper plugin dependency injection pattern
 
@@ -33,16 +33,17 @@ NATS provides a language-agnostic messaging bus that enables:
 
 ```
 projects/node-nats-client-demo/
-├── main.go                      # Go application entry point
+├── main.go                      # Go application entry point (strict module boundaries)
 ├── go.mod                       # Go module definition
 ├── README.md                    # This file
 ├── demo.js                      # Interactive demo workflow
 ├── package.json                 # Node.js dependencies
 ├── modules/fileops/             # Go Mono module
-│   ├── module.go               # Module registration (UsePluginModule)
+│   ├── contract/
+│   │   └── contract.go         # Published port: DTOs + Save / Archive contracts
+│   ├── module.go               # UsePluginModule + RegisterServices via contracts
 │   ├── service.go              # File save + archive handlers
-│   ├── service_test.go         # Go unit tests
-│   └── types.go                # Request/response types
+│   └── service_test.go         # Real-app tests (fs-jetstream, boundary report)
 ├── client/                      # Node.js client library
 │   ├── index.js                # Main exports
 │   ├── client.js               # NATS connection manager
@@ -54,7 +55,7 @@ projects/node-nats-client-demo/
 
 ## Prerequisites
 
-- **Go 1.21+** - For the Mono backend service
+- **Go 1.25+** - For the Mono backend service
 - **Node.js 18+** - For the Node.js client and demo
 - **No external NATS required** - Mono embeds NATS server
 
@@ -80,17 +81,22 @@ Services:
   services.fileops.archive - QueueGroupService: Archive JSON file as ZIP
 ```
 
+`STORAGE_PATH` (default `/tmp/node-nats-client-demo`) sets the JetStream storage directory and `NATS_PORT` (default `4222`) the embedded NATS port.
+
 ### 2. Install Node.js Dependencies
 
 ```bash
-npm install
+npm ci
 ```
 
 ### 3. Run the Demo
 
 ```bash
-node demo.js
+node demo.js                          # nats://localhost:4222
+node demo.js nats://127.0.0.1:4222    # explicit URL (or another NATS_PORT)
 ```
+
+If the connection times out with `localhost`, use `127.0.0.1`: the embedded server listens on IPv4 only, and some Node.js versions resolve `localhost` to `::1` first.
 
 The demo will:
 1. Connect to NATS
@@ -176,7 +182,7 @@ Node.js Client → services.fileops.archive (queue) → Go Worker
                                               4. Delete original
 ```
 
-This is fire-and-forget - client doesn't wait for completion. Multiple workers can process the queue concurrently.
+This is fire-and-forget - client doesn't wait for completion. Queue group handlers run one at a time per instance by default; run more instances (or register with `mono.WithMaxConcurrency`) to process the queue in parallel.
 
 ### 3. Watch Workflow
 
@@ -234,14 +240,37 @@ await watcher.watch(callback, {
 await watcher.stop();
 ```
 
+## Request Deadlines
+
+Since mono v0.0.17, request-reply calls made from Go carry the caller's deadline in the `Mono-Deadline` (absolute, Unix milliseconds) and `Mono-Timeout` (remaining, milliseconds) headers; the server drops a request whose deadline already passed while it waited, and the handler context ends at that deadline. `FileService` sends a plain `nc.request(...)` without them, so only its client-side `timeout` applies. A Node.js client can opt in by adding the headers:
+
+```javascript
+import { headers } from 'nats';
+
+const h = headers();
+h.set('Mono-Deadline', String(Date.now() + timeout));
+h.set('Mono-Timeout', String(timeout));
+await nc.request('services.fileops.save', payload, { timeout, headers: h });
+```
+
+`ArchiveService` publishes without a reply subject, so the headers do not apply to it. Request-reply handlers run concurrently on a worker pool (v0.0.15+), so parallel `save` requests are served in parallel.
+
+## Module Boundaries
+
+The Go side follows the module boundaries path of mono v0.1.x:
+
+- **Contract package**: `modules/fileops/contract` holds the DTOs and the typed contracts `Save` (`helper.RequestReplyService`) and `Archive` (`helper.QueueGroupService`). They fix the subjects the Node.js clients use; module code never writes a service name as a string.
+- **No cross-module calls**: the module is called only from Node.js and uses the storage plugin directly (`UsePluginModule`), so it has no `ConsumeServices()`.
+- **Strict mode**: `main.go` runs with `mono.WithStrictModuleBoundaries()`.
+- **Tests**: the fs-jetstream plugin needs JetStream, which `monotest` does not emulate, so `modules/fileops/service_test.go` runs the module in a real application (free NATS port, temp JetStream dir, default mode so violations are recorded), calls both contracts and asserts that `app.ModuleBoundaries()` reports no violations.
+
 ## Testing
 
 ```bash
 # Run Go tests
-go test ./modules/fileops -v
+go test ./... -v
 
-# Run Node.js tests (when implemented)
-npm test
+# There are no Node.js unit tests yet (npm test finds none); run demo.js against the server instead
 ```
 
 ## When to Use This Pattern
@@ -277,7 +306,7 @@ Files are stored with UUID-based prefixes to avoid naming collisions:
 ### Error Handling
 - **Go Service**: Returns errors in response JSON (for visibility to clients)
 - **Node.js Client**: Throws errors for connection issues, parses error field from responses
-- **QueueGroup**: Fire-and-forget, logs errors but doesn't propagate them
+- **QueueGroup**: Fire-and-forget, logs errors but doesn't propagate them; a payload that is not valid JSON is logged by the framework and dropped
 
 ## Learn More
 

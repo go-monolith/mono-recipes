@@ -22,13 +22,18 @@ func main() {
 		mono.WithShutdownTimeout(shutdownTimeout),
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
+		// Reject Ports and Adapters violations (e.g. a module registering on
+		// another module's container) instead of only reporting them at Stop.
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
 	}
 
 	// Register article module
-	app.Register(article.NewModule())
+	if err := app.Register(article.NewModule()); err != nil {
+		log.Fatalf("Failed to register article module: %v", err)
+	}
 
 	// Start application
 	if err := app.Start(context.Background()); err != nil {

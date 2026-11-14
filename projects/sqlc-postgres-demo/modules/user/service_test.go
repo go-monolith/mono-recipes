@@ -10,6 +10,8 @@ import (
 	"github.com/example/sqlc-postgres-demo/modules/user/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/example/sqlc-postgres-demo/modules/user/contract"
 )
 
 // mockRepository is a test double implementing UserRepository.
@@ -139,7 +141,7 @@ func TestUserService_Create(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		resp, err := svc.Create(context.Background(), CreateUserRequest{
+		resp, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Test User",
 			Email: "test@example.com",
 		})
@@ -162,7 +164,7 @@ func TestUserService_Create(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		_, err := svc.Create(context.Background(), CreateUserRequest{
+		_, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Email: "test@example.com",
 		})
 		if err != errNameRequired {
@@ -174,7 +176,7 @@ func TestUserService_Create(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		_, err := svc.Create(context.Background(), CreateUserRequest{
+		_, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name: "Test User",
 		})
 		if err != errEmailRequired {
@@ -187,7 +189,7 @@ func TestUserService_Create(t *testing.T) {
 		repo.emailExists = true
 		svc := NewUserService(repo)
 
-		_, err := svc.Create(context.Background(), CreateUserRequest{
+		_, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Test User",
 			Email: "test@example.com",
 		})
@@ -203,7 +205,7 @@ func TestUserService_Get(t *testing.T) {
 		svc := NewUserService(repo)
 
 		// Create a user first
-		created, err := svc.Create(context.Background(), CreateUserRequest{
+		created, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Test User",
 			Email: "test@example.com",
 		})
@@ -212,7 +214,7 @@ func TestUserService_Get(t *testing.T) {
 		}
 
 		// Get the user
-		resp, err := svc.Get(context.Background(), GetUserRequest{ID: created.ID})
+		resp, err := svc.Get(context.Background(), contract.GetUserRequest{ID: created.ID})
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -226,7 +228,7 @@ func TestUserService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		_, err := svc.Get(context.Background(), GetUserRequest{})
+		_, err := svc.Get(context.Background(), contract.GetUserRequest{})
 		if err != errIDRequired {
 			t.Errorf("expected errIDRequired, got %v", err)
 		}
@@ -236,7 +238,7 @@ func TestUserService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		_, err := svc.Get(context.Background(), GetUserRequest{ID: "not-a-uuid"})
+		_, err := svc.Get(context.Background(), contract.GetUserRequest{ID: "not-a-uuid"})
 		if err != errIDInvalid {
 			t.Errorf("expected errIDInvalid, got %v", err)
 		}
@@ -246,7 +248,7 @@ func TestUserService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		_, err := svc.Get(context.Background(), GetUserRequest{
+		_, err := svc.Get(context.Background(), contract.GetUserRequest{
 			ID: uuid.New().String(),
 		})
 		if err != ErrNotFound {
@@ -262,7 +264,7 @@ func TestUserService_List(t *testing.T) {
 
 		// Create multiple users
 		for i := range 5 {
-			_, err := svc.Create(context.Background(), CreateUserRequest{
+			_, err := svc.Create(context.Background(), contract.CreateUserRequest{
 				Name:  "Test User",
 				Email: fmt.Sprintf("test%d@example.com", i),
 			})
@@ -271,7 +273,7 @@ func TestUserService_List(t *testing.T) {
 			}
 		}
 
-		resp, err := svc.List(context.Background(), ListUsersRequest{
+		resp, err := svc.List(context.Background(), contract.ListUsersRequest{
 			Limit:  2,
 			Offset: 0,
 		})
@@ -294,7 +296,7 @@ func TestUserService_List(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		resp, err := svc.List(context.Background(), ListUsersRequest{})
+		resp, err := svc.List(context.Background(), contract.ListUsersRequest{})
 		if err != nil {
 			t.Fatalf("List() error = %v", err)
 		}
@@ -311,7 +313,7 @@ func TestUserService_List(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		resp, err := svc.List(context.Background(), ListUsersRequest{
+		resp, err := svc.List(context.Background(), contract.ListUsersRequest{
 			Limit: 200, // Exceeds max
 		})
 		if err != nil {
@@ -330,7 +332,7 @@ func TestUserService_Update(t *testing.T) {
 		svc := NewUserService(repo)
 
 		// Create a user
-		created, err := svc.Create(context.Background(), CreateUserRequest{
+		created, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Original Name",
 			Email: "test@example.com",
 		})
@@ -340,7 +342,7 @@ func TestUserService_Update(t *testing.T) {
 
 		// Update the user
 		newName := "Updated Name"
-		resp, err := svc.Update(context.Background(), UpdateUserRequest{
+		resp, err := svc.Update(context.Background(), contract.UpdateUserRequest{
 			ID:   created.ID,
 			Name: &newName,
 		})
@@ -358,7 +360,7 @@ func TestUserService_Update(t *testing.T) {
 		svc := NewUserService(repo)
 
 		newName := "Updated Name"
-		_, err := svc.Update(context.Background(), UpdateUserRequest{
+		_, err := svc.Update(context.Background(), contract.UpdateUserRequest{
 			Name: &newName,
 		})
 		if err != errIDRequired {
@@ -371,7 +373,7 @@ func TestUserService_Update(t *testing.T) {
 		svc := NewUserService(repo)
 
 		newName := "Updated Name"
-		_, err := svc.Update(context.Background(), UpdateUserRequest{
+		_, err := svc.Update(context.Background(), contract.UpdateUserRequest{
 			ID:   uuid.New().String(),
 			Name: &newName,
 		})
@@ -385,7 +387,7 @@ func TestUserService_Update(t *testing.T) {
 		svc := NewUserService(repo)
 
 		// Create a user
-		created, err := svc.Create(context.Background(), CreateUserRequest{
+		created, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Original Name",
 			Email: "test@example.com",
 		})
@@ -395,7 +397,7 @@ func TestUserService_Update(t *testing.T) {
 
 		// Try to update with empty name
 		emptyName := ""
-		_, err = svc.Update(context.Background(), UpdateUserRequest{
+		_, err = svc.Update(context.Background(), contract.UpdateUserRequest{
 			ID:   created.ID,
 			Name: &emptyName,
 		})
@@ -409,7 +411,7 @@ func TestUserService_Update(t *testing.T) {
 		svc := NewUserService(repo)
 
 		// Create a user
-		created, err := svc.Create(context.Background(), CreateUserRequest{
+		created, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Original Name",
 			Email: "test@example.com",
 		})
@@ -419,7 +421,7 @@ func TestUserService_Update(t *testing.T) {
 
 		// Try to update with empty email
 		emptyEmail := ""
-		_, err = svc.Update(context.Background(), UpdateUserRequest{
+		_, err = svc.Update(context.Background(), contract.UpdateUserRequest{
 			ID:    created.ID,
 			Email: &emptyEmail,
 		})
@@ -435,7 +437,7 @@ func TestUserService_Delete(t *testing.T) {
 		svc := NewUserService(repo)
 
 		// Create a user
-		created, err := svc.Create(context.Background(), CreateUserRequest{
+		created, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Test User",
 			Email: "test@example.com",
 		})
@@ -444,7 +446,7 @@ func TestUserService_Delete(t *testing.T) {
 		}
 
 		// Delete the user
-		resp, err := svc.Delete(context.Background(), DeleteUserRequest{
+		resp, err := svc.Delete(context.Background(), contract.DeleteUserRequest{
 			ID: created.ID,
 		})
 		if err != nil {
@@ -459,7 +461,7 @@ func TestUserService_Delete(t *testing.T) {
 		}
 
 		// Verify deletion
-		_, err = svc.Get(context.Background(), GetUserRequest{ID: created.ID})
+		_, err = svc.Get(context.Background(), contract.GetUserRequest{ID: created.ID})
 		if err != ErrNotFound {
 			t.Errorf("expected ErrNotFound after delete, got %v", err)
 		}
@@ -469,7 +471,7 @@ func TestUserService_Delete(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		_, err := svc.Delete(context.Background(), DeleteUserRequest{})
+		_, err := svc.Delete(context.Background(), contract.DeleteUserRequest{})
 		if err != errIDRequired {
 			t.Errorf("expected errIDRequired, got %v", err)
 		}
@@ -479,7 +481,7 @@ func TestUserService_Delete(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewUserService(repo)
 
-		_, err := svc.Delete(context.Background(), DeleteUserRequest{ID: "not-a-uuid"})
+		_, err := svc.Delete(context.Background(), contract.DeleteUserRequest{ID: "not-a-uuid"})
 		if err != errIDInvalid {
 			t.Errorf("expected errIDInvalid, got %v", err)
 		}
@@ -536,7 +538,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 		repo.createErr = errors.New("db connection failed")
 		svc := NewUserService(repo)
 
-		_, err := svc.Create(context.Background(), CreateUserRequest{
+		_, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Test User",
 			Email: "test@example.com",
 		})
@@ -556,7 +558,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 			ID: pgtype.UUID{Bytes: id, Valid: true},
 		}
 
-		_, err := svc.Get(context.Background(), GetUserRequest{ID: id.String()})
+		_, err := svc.Get(context.Background(), contract.GetUserRequest{ID: id.String()})
 		if err == nil || err.Error() != "db query failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}
@@ -567,7 +569,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 		repo.findAllErr = errors.New("db query failed")
 		svc := NewUserService(repo)
 
-		_, err := svc.List(context.Background(), ListUsersRequest{Limit: 10})
+		_, err := svc.List(context.Background(), contract.ListUsersRequest{Limit: 10})
 		if err == nil || err.Error() != "db query failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}
@@ -578,7 +580,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 		repo.countErr = errors.New("count query failed")
 		svc := NewUserService(repo)
 
-		_, err := svc.List(context.Background(), ListUsersRequest{Limit: 10})
+		_, err := svc.List(context.Background(), contract.ListUsersRequest{Limit: 10})
 		if err == nil || err.Error() != "count query failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}
@@ -589,7 +591,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 		svc := NewUserService(repo)
 
 		// Create a user first
-		created, err := svc.Create(context.Background(), CreateUserRequest{
+		created, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Test User",
 			Email: "test@example.com",
 		})
@@ -601,7 +603,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 		repo.updateErr = errors.New("db update failed")
 
 		newName := "Updated Name"
-		_, err = svc.Update(context.Background(), UpdateUserRequest{
+		_, err = svc.Update(context.Background(), contract.UpdateUserRequest{
 			ID:   created.ID,
 			Name: &newName,
 		})
@@ -615,7 +617,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 		svc := NewUserService(repo)
 
 		// Create a user first
-		created, err := svc.Create(context.Background(), CreateUserRequest{
+		created, err := svc.Create(context.Background(), contract.CreateUserRequest{
 			Name:  "Test User",
 			Email: "test@example.com",
 		})
@@ -626,7 +628,7 @@ func TestUserService_ErrorPropagation(t *testing.T) {
 		// Set error after creation
 		repo.deleteErr = errors.New("db delete failed")
 
-		_, err = svc.Delete(context.Background(), DeleteUserRequest{ID: created.ID})
+		_, err = svc.Delete(context.Background(), contract.DeleteUserRequest{ID: created.ID})
 		if err == nil || err.Error() != "db delete failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}

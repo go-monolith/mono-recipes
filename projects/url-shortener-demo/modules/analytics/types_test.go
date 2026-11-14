@@ -87,16 +87,16 @@ func TestAnalyticsStore_GetSummary(t *testing.T) {
 
 	summary := store.GetSummary()
 
-	if summary["urls_created"].(int64) != 2 {
-		t.Errorf("Expected urls_created = 2, got %v", summary["urls_created"])
+	if summary.URLsCreated != 2 {
+		t.Errorf("Expected urls_created = 2, got %v", summary.URLsCreated)
 	}
 
-	if summary["total_accesses"].(int64) != 3 {
-		t.Errorf("Expected total_accesses = 3, got %v", summary["total_accesses"])
+	if summary.TotalAccesses != 3 {
+		t.Errorf("Expected total_accesses = 3, got %v", summary.TotalAccesses)
 	}
 
-	if summary["access_logs"].(int) != 3 {
-		t.Errorf("Expected access_logs = 3, got %v", summary["access_logs"])
+	if summary.AccessLogs != 3 {
+		t.Errorf("Expected access_logs = 3, got %v", summary.AccessLogs)
 	}
 }
 

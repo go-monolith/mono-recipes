@@ -1,6 +1,6 @@
-# Prisma + sqlc PostgreSQL Demo
+# Prisma + sqlc PostgreSQL Multiple Schemas Demo
 
-A mono framework recipe demonstrating how to combine **Prisma for infrastructure** (local development, migrations) with **sqlc for database access** (type-safe Go code generation).
+A [mono](https://github.com/go-monolith/mono) framework (v0.1.1) recipe demonstrating how to combine **Prisma for infrastructure** (local development, migrations) with **sqlc for database access** (type-safe Go code generation), with each module owning its own PostgreSQL schema (`article_module` for the article module, `blog` for the blog module).
 
 ## Why Prisma + sqlc?
 
@@ -67,6 +67,20 @@ All services are exposed via NATS request-reply pattern:
 | `services.article.update` | Update article fields |
 | `services.article.delete` | Delete article by ID |
 | `services.article.publish` | Publish a draft article |
+| `services.blog.post-create` | Create a new post |
+| `services.blog.post-get` | Get post by ID or slug |
+| `services.blog.post-list` | List posts with pagination and published filter |
+| `services.blog.post-update` | Update post fields |
+| `services.blog.post-delete` | Delete post by ID (cascades to its comments) |
+| `services.blog.post-publish` | Publish a draft post |
+| `services.blog.comment-create` | Create a comment on a post |
+| `services.blog.comment-get` | Get comment by ID |
+| `services.blog.comment-list` | List comments of a post with pagination |
+| `services.blog.comment-update` | Update comment fields |
+| `services.blog.comment-delete` | Delete comment by ID |
+
+Service names are single kebab-case tokens: mono subjects have exactly three
+tokens, `services.<module>.<service>`, so `post-create` rather than `post.create`.
 
 ## Prerequisites
 
@@ -212,7 +226,7 @@ schema: "prisma/full_schema.sql"
 ## Project Structure
 
 ```
-prisma-postgres-demo/
+prisma-postgres-multiple-schemas-demo/
 ├── main.go                           # Application entry point
 ├── go.mod                            # Go dependencies
 ├── package.json                      # Prisma CLI dependency (includes dotenv)
@@ -226,19 +240,31 @@ prisma-postgres-demo/
 │       └── 20260115.../
 │           └── migration.sql
 ├── modules/
-│   └── article/
-│       ├── module.go                 # ArticleModule (ServiceProviderModule)
-│       ├── service.go                # ArticleService business logic
-│       ├── repository.go             # PostgresRepository using sqlc
-│       ├── types.go                  # Request/Response DTOs
-│       ├── service_test.go           # Unit tests with mock repository
+│   ├── article/
+│   │   ├── contract/
+│   │   │   └── contract.go           # Published port: DTOs + typed service contracts
+│   │   ├── module.go                 # ArticleModule (ServiceProviderModule)
+│   │   ├── module_test.go            # monotest.CheckModule conformance tests
+│   │   ├── service.go                # ArticleService business logic
+│   │   ├── repository.go             # PostgresRepository using sqlc
+│   │   ├── service_test.go           # Unit tests with mock repository
+│   │   ├── repository_test.go        # Integration tests
+│   │   └── db/
+│   │       ├── sqlc.yaml             # sqlc config
+│   │       ├── query.sql             # SQL queries with sqlc annotations
+│   │       ├── prisma/
+│   │       │   └── full_schema.sql   # Consolidated schema for sqlc
+│   │       └── generated/            # sqlc-generated Go code
+│   └── blog/
+│       ├── contract/
+│       │   └── contract.go           # Published port: post + comment DTOs and contracts
+│       ├── module.go                 # BlogModule (ServiceProviderModule)
+│       ├── module_test.go            # monotest.CheckModule conformance tests
+│       ├── service.go                # PostService + CommentService business logic
+│       ├── repository.go             # Post/Comment repositories using sqlc
+│       ├── service_test.go           # Unit tests with mock repositories
 │       ├── repository_test.go        # Integration tests
-│       └── db/
-│           ├── sqlc.yaml             # sqlc config
-│           ├── query.sql             # SQL queries with sqlc annotations
-│           ├── prisma/
-│           │   └── full_schema.sql   # Consolidated schema for sqlc
-│           └── generated/            # sqlc-generated Go code
+│       └── db/                       # sqlc.yaml, query.sql, prisma/, generated/
 └── bin/                              # Compiled binary
 ```
 
@@ -271,6 +297,32 @@ nats request services.article.list '{"published": true, "limit": 10}'
 
 ```bash
 nats request services.article.publish '{"id": "article-uuid-here"}'
+```
+
+## Module Boundaries
+
+With mono v0.1.1, the article and blog modules follow the framework's Ports and Adapters rules:
+
+- `modules/<module>/contract` is each module's published port: request/response
+  DTOs and the typed contracts (`helper.RequestReplyService`). It imports only
+  the standard library and `mono/pkg/helper`, never the module package or the
+  sqlc-generated `db/generated` package; the service layer maps the generated
+  rows to the contract DTOs. It is the only package of a module other modules
+  may import.
+- `RegisterServices` registers every handler through its contract, for example
+  `contract.CreateArticle.Register(container, m.handleCreate)`, so no service
+  name is written as a string in module code. Callers use the same value:
+  `contract.CreateArticle.Call(ctx, container, contract.CreateArticleRequest{...})`.
+- `main.go` runs with `mono.WithStrictModuleBoundaries()`, which rejects
+  boundary violations instead of only reporting them when the app stops.
+- `modules/<module>/module_test.go` runs `monotest.CheckModule` and calls every
+  contract, once with in-memory services injected through the module's
+  `NewModuleWithService(s)` constructor (no database needed) and once against
+  PostgreSQL when `TEST_DATABASE_URL` (default: the local Prisma Postgres dev
+  server) is reachable, skipping otherwise:
+
+```bash
+go test ./modules/... -run Conformance -v
 ```
 
 ## Trade-offs

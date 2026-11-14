@@ -7,11 +7,12 @@ import (
 	"strconv"
 	"time"
 
-	"node-nats-client-demo/modules/fileops"
-
 	gfshutdown "github.com/gelmium/graceful-shutdown"
 	"github.com/go-monolith/mono"
 	fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
+
+	"node-nats-client-demo/modules/fileops"
+	fileopscontract "node-nats-client-demo/modules/fileops/contract"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -33,6 +34,8 @@ func main() {
 		mono.WithLogFormat(mono.LogFormatText),
 		mono.WithJetStreamStorageDir(storagePath),
 		mono.WithNATSPort(natsPort),
+		// Reject module boundary violations (see "Module boundaries" in README).
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create mono application: %v", err)
@@ -61,7 +64,9 @@ func main() {
 
 	// Create and register file operations module
 	fileOpsModule := fileops.NewModule(app.Logger())
-	app.Register(fileOpsModule)
+	if err := app.Register(fileOpsModule); err != nil {
+		log.Fatalf("Failed to register fileops module: %v", err)
+	}
 
 	// Start the application
 	ctx := context.Background()
@@ -72,8 +77,8 @@ func main() {
 	log.Println("=== Application Started ===")
 	log.Printf("NATS available at nats://localhost:%d", natsPort)
 	log.Println("Services:")
-	log.Println("  services.fileops.save    - RequestReplyService: Save JSON file to bucket")
-	log.Println("  services.fileops.archive - QueueGroupService: Archive JSON file as ZIP")
+	log.Printf("  %s    - RequestReplyService: Save JSON file to bucket", fileopscontract.Save.Subject())
+	log.Printf("  %s - QueueGroupService: Archive JSON file as ZIP", fileopscontract.Archive.Subject())
 	log.Println("")
 	log.Println("Press Ctrl+C to shutdown")
 

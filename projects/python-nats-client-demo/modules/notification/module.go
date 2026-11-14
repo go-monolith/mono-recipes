@@ -6,14 +6,14 @@ import (
 	"log"
 
 	"github.com/go-monolith/mono"
+	"github.com/go-monolith/mono/pkg/types"
+
+	"github.com/example/python-nats-client-demo/modules/notification/contract"
 )
 
-const (
-	// ServiceName is the name of the QueueGroupService.
-	ServiceName = "email-send"
-	// QueueGroup is the queue group name for email workers.
-	QueueGroup = "email-workers"
-)
+// QueueGroup is the queue group name for email workers. It is a provider-side
+// detail: senders only need the contract's subject.
+const QueueGroup = "email-workers"
 
 // NotificationModule provides notification services via QueueGroupService.
 // This demonstrates fire-and-forget messaging where multiple workers
@@ -36,22 +36,19 @@ func (m *NotificationModule) Name() string {
 	return "notification"
 }
 
-// RegisterServices registers the QueueGroupService for email processing.
-// The NATS subject will be "services.notification.email-send".
-// All messages are load-balanced across workers in the "email-workers" queue group.
+// RegisterServices binds the typed handler to the module's own contract.
+// The NATS subject is services.notification.email-send; messages are
+// load-balanced across workers in the "email-workers" queue group.
 func (m *NotificationModule) RegisterServices(container mono.ServiceContainer) error {
-	err := container.RegisterQueueGroupService(
-		ServiceName,
-		mono.QGHP{
-			QueueGroup: QueueGroup,
-			Handler:    m.handleEmailSend,
-		},
-	)
+	err := contract.SendEmail.Register(container, types.TypedQGHP[contract.SendEmailRequest]{
+		QueueGroup: QueueGroup,
+		Handler:    m.handleEmailSend,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to register queue group service: %w", err)
 	}
 
-	log.Printf("[notification] Registered QueueGroupService: services.notification.%s (queue: %s)", ServiceName, QueueGroup)
+	log.Printf("[notification] Registered QueueGroupService: %s (queue: %s)", contract.SendEmail.Subject(), QueueGroup)
 	return nil
 }
 

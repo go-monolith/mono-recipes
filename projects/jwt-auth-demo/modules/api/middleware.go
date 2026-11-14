@@ -3,8 +3,9 @@ package api
 import (
 	"strings"
 
-	"github.com/example/jwt-auth-demo/modules/auth"
 	"github.com/gofiber/fiber/v2"
+
+	authcontract "github.com/example/jwt-auth-demo/modules/auth/contract"
 )
 
 const (
@@ -12,8 +13,10 @@ const (
 	UserContextKey = "user"
 )
 
-// AuthMiddleware creates a middleware that validates JWT tokens.
-func AuthMiddleware(authAdapter auth.AuthPort) fiber.Handler {
+// AuthMiddleware creates a middleware that validates JWT tokens through the
+// auth module's validate-token contract and stores the caller's *Claims in
+// c.Locals(UserContextKey).
+func AuthMiddleware(authPort AuthPort) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Get Authorization header
 		authHeader := c.Get("Authorization")
@@ -42,8 +45,8 @@ func AuthMiddleware(authAdapter auth.AuthPort) fiber.Handler {
 		}
 
 		// Validate token
-		claims, err := authAdapter.ValidateToken(c.UserContext(), token)
-		if err != nil {
+		result, err := authPort.ValidateToken(c.UserContext(), authcontract.ValidateTokenRequest{Token: token})
+		if err != nil || !result.Valid {
 			return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
 				Error:   "unauthorized",
 				Message: "Invalid or expired token",
@@ -51,7 +54,7 @@ func AuthMiddleware(authAdapter auth.AuthPort) fiber.Handler {
 		}
 
 		// Store claims in context for use in handlers
-		c.Locals(UserContextKey, claims)
+		c.Locals(UserContextKey, &Claims{UserID: result.UserID, Email: result.Email})
 
 		return c.Next()
 	}

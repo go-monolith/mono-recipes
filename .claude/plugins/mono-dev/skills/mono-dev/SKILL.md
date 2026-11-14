@@ -1,7 +1,7 @@
 ---
 name: mono-dev
 description: This skill should be used when the user asks to "create a Mono application", "add a new Mono module", "create a Mono plugin", "create a Mono middleware", "use kv-jetstream plugin", "use fs-jetstream plugin", "create Python client to connect to Mono app", "create Node.js client to connect to Mono app", "add polyglot client for Mono app", "add background jobs in Mono app", "add queue-group workers", "define a service contract", "add a contract package", "check module boundaries", "enforce hexagonal architecture", "ports and adapters in Mono", "test a Mono module without NATS", "add a cron job in Mono app", "schedule a recurring task", "add a scheduled service", or mentions "mono framework", "MonoApplication", "ServiceContainer", "ChannelService", "RequestReplyService", "QueueGroupService", "StreamConsumerService", "CronService", "RegisterCronService", "CronServiceConfig", "EventBus", "EventRegistry", "EventEmitter", "EventConsumer", "EventStreamConsumer", "PluginModule", "UsePluginModule", "MiddlewareModule", "OnServiceRegistration", "OnModuleLifecycle", "OnOutgoingMessage", "kv-jetstream", "fs-jetstream", "KVStoragePort", "FileStoragePort", "QGHP", "ServiceConsumerModule", "ConsumeServices", "helper.RequestReplyService", "helper.QueueGroupService", "helper.StreamConsumerService", "BaseServiceDefinition", "WithStrictModuleBoundaries", "ModuleBoundaries", "ErrModuleBoundaryViolation", "monotest", "CheckModule", "nats.py", "nats.js". Provides best practices for developing modular monolith applications with the go-monolith/mono framework.
-version: 0.6.0
+version: 0.6.1
 ---
 
 # Mono Framework Development
@@ -726,18 +726,22 @@ Real-world implementations in [mono-recipes](https://github.com/go-monolith/mono
 
 | Project | Demonstrates |
 |---------|--------------|
-| `background-jobs-demo` | QueueGroupService with multiple workers |
-| `cron-scheduler-demo` | CronService scheduled jobs (interval, cron, alias) |
-| `file-upload-demo` | fs-jetstream plugin with Gin HTTP server |
-| `url-shortener-demo` | kv-jetstream plugin with events and Fiber |
-| `jwt-auth-demo` | Authentication with Fiber and dependencies |
-| `websocket-chat-demo` | EventBus patterns with WebSocket |
-| `python-nats-client-demo` | Python client integration |
+| `hexagonal-architecture` | Ports and Adapters end to end: `contract` packages, consumer-owned ports/adapters, `ConsumeServices`, events in the emitter's contract, `CheckModule` per module |
+| `background-jobs-demo` | QueueGroupService with multiple workers via a typed `QueueGroupService` contract |
+| `cron-scheduler-demo` | CronService scheduled jobs (interval, cron, alias); stats exposed through a typed contract |
+| `file-upload-demo` | fs-jetstream plugin with a Gin HTTP driving adapter inside the module |
+| `url-shortener-demo` | kv-jetstream plugin, typed contracts and events, Fiber |
+| `jwt-auth-demo` | Authentication with Fiber; API reaches auth through its own port/adapter |
+| `websocket-chat-demo` | EventBus patterns with WebSocket; events consumed through contract definitions |
+| `python-nats-client-demo` | Python client integration (RequestReply, QueueGroup, StreamConsumer contracts) |
 | `node-nats-client-demo` | Node.js client with fs-jetstream |
-| `rate-limiting-middleware` | Custom middleware with Redis |
+| `rate-limiting-middleware` | Custom middleware with Redis wrapping typed-contract services |
 | `sqlc-postgres-demo` | sqlc with PostgreSQL and health checks |
-| `gorm-sqlite-demo` | GORM with SQLite |
-| `redis-caching-plugin` | Redis caching plugin pattern |
+| `gorm-sqlite-demo` | GORM with SQLite (single connection for concurrent handlers) |
+| `redis-caching-plugin` | Custom Redis caching plugin; `monotest.WithPlugin` test |
+| `graceful-shutdown-demo` | Draining in-flight HTTP requests and workers within the shutdown timeout |
+
+All recipes target mono **v0.1.1**, run with `mono.WithStrictModuleBoundaries()`, and have a `monotest.CheckModule` (or real-app boundary) test per module.
 
 ### Official Documentation
 

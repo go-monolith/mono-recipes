@@ -1,6 +1,7 @@
 package product
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -21,17 +22,17 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 // Create saves a new product to the database.
-func (r *Repository) Create(product *Product) error {
-	if err := r.db.Create(product).Error; err != nil {
+func (r *Repository) Create(ctx context.Context, product *Product) error {
+	if err := r.db.WithContext(ctx).Create(product).Error; err != nil {
 		return fmt.Errorf("failed to create product: %w", err)
 	}
 	return nil
 }
 
 // FindByID retrieves a product by its ID.
-func (r *Repository) FindByID(id string) (*Product, error) {
+func (r *Repository) FindByID(ctx context.Context, id string) (*Product, error) {
 	var product Product
-	if err := r.db.First(&product, "id = ?", id).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&product, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
@@ -41,17 +42,17 @@ func (r *Repository) FindByID(id string) (*Product, error) {
 }
 
 // FindAll retrieves all products.
-func (r *Repository) FindAll() ([]*Product, error) {
+func (r *Repository) FindAll(ctx context.Context) ([]*Product, error) {
 	var products []*Product
-	if err := r.db.Find(&products).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&products).Error; err != nil {
 		return nil, fmt.Errorf("failed to find products: %w", err)
 	}
 	return products, nil
 }
 
 // Update updates an existing product.
-func (r *Repository) Update(product *Product) error {
-	result := r.db.Model(&Product{}).Where("id = ?", product.ID).Updates(product)
+func (r *Repository) Update(ctx context.Context, product *Product) error {
+	result := r.db.WithContext(ctx).Model(&Product{}).Where("id = ?", product.ID).Updates(product)
 	if err := result.Error; err != nil {
 		return fmt.Errorf("failed to update product: %w", err)
 	}
@@ -62,8 +63,8 @@ func (r *Repository) Update(product *Product) error {
 }
 
 // Delete removes a product by ID (soft delete).
-func (r *Repository) Delete(id string) error {
-	result := r.db.Delete(&Product{}, "id = ?", id)
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).Delete(&Product{}, "id = ?", id)
 	if err := result.Error; err != nil {
 		return fmt.Errorf("failed to delete product: %w", err)
 	}

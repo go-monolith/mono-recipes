@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/prisma-postgres-demo/modules/blog/db/generated"
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/blog/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/blog/contract"
 )
 
 // === Mock Post Repository ===
@@ -231,15 +233,15 @@ func (m *mockPostRepository) Delete(_ context.Context, id uuid.UUID) error {
 // === Mock Comment Repository ===
 
 type mockCommentRepository struct {
-	comments         map[uuid.UUID]*generated.BlogComment
-	postComments     map[uuid.UUID][]uuid.UUID
-	createErr        error
-	findByIDErr      error
-	findAllErr       error
-	countErr         error
-	updateErr        error
-	deleteErr        error
-	returnedCount    int64
+	comments      map[uuid.UUID]*generated.BlogComment
+	postComments  map[uuid.UUID][]uuid.UUID
+	createErr     error
+	findByIDErr   error
+	findAllErr    error
+	countErr      error
+	updateErr     error
+	deleteErr     error
+	returnedCount int64
 }
 
 var _ CommentRepository = (*mockCommentRepository)(nil)
@@ -365,7 +367,7 @@ func TestPostService_Create(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		resp, err := svc.Create(context.Background(), CreatePostRequest{
+		resp, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:     "Test Post",
 			Content:   "Test content here",
 			Slug:      "test-post",
@@ -393,7 +395,7 @@ func TestPostService_Create(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Create(context.Background(), CreatePostRequest{
+		_, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Content: "Test content",
 			Slug:    "test-slug",
 		})
@@ -406,7 +408,7 @@ func TestPostService_Create(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Create(context.Background(), CreatePostRequest{
+		_, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title: "Test Post",
 			Slug:  "test-slug",
 		})
@@ -419,7 +421,7 @@ func TestPostService_Create(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Create(context.Background(), CreatePostRequest{
+		_, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Test content",
 		})
@@ -432,7 +434,7 @@ func TestPostService_Create(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Create(context.Background(), CreatePostRequest{
+		_, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "First Post",
 			Content: "Content",
 			Slug:    "same-slug",
@@ -441,7 +443,7 @@ func TestPostService_Create(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		_, err = svc.Create(context.Background(), CreatePostRequest{
+		_, err = svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Second Post",
 			Content: "Content",
 			Slug:    "same-slug",
@@ -457,7 +459,7 @@ func TestPostService_Get(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		created, err := svc.Create(context.Background(), CreatePostRequest{
+		created, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Test content",
 			Slug:    "test-post",
@@ -466,7 +468,7 @@ func TestPostService_Get(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		resp, err := svc.Get(context.Background(), GetPostRequest{ID: created.ID})
+		resp, err := svc.Get(context.Background(), contract.GetPostRequest{ID: created.ID})
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -480,7 +482,7 @@ func TestPostService_Get(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		created, err := svc.Create(context.Background(), CreatePostRequest{
+		created, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Test content",
 			Slug:    "test-post",
@@ -489,7 +491,7 @@ func TestPostService_Get(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		resp, err := svc.Get(context.Background(), GetPostRequest{Slug: "test-post"})
+		resp, err := svc.Get(context.Background(), contract.GetPostRequest{Slug: "test-post"})
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -503,7 +505,7 @@ func TestPostService_Get(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Get(context.Background(), GetPostRequest{})
+		_, err := svc.Get(context.Background(), contract.GetPostRequest{})
 		if err != ErrPostIDOrSlugRequired {
 			t.Errorf("expected ErrPostIDOrSlugRequired, got %v", err)
 		}
@@ -513,7 +515,7 @@ func TestPostService_Get(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Get(context.Background(), GetPostRequest{ID: "not-a-uuid"})
+		_, err := svc.Get(context.Background(), contract.GetPostRequest{ID: "not-a-uuid"})
 		if err != ErrPostIDInvalid {
 			t.Errorf("expected ErrPostIDInvalid, got %v", err)
 		}
@@ -523,7 +525,7 @@ func TestPostService_Get(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Get(context.Background(), GetPostRequest{
+		_, err := svc.Get(context.Background(), contract.GetPostRequest{
 			ID: uuid.New().String(),
 		})
 		if err != ErrPostNotFound {
@@ -538,7 +540,7 @@ func TestPostService_List(t *testing.T) {
 		svc := NewPostService(repo)
 
 		for i := range 5 {
-			_, err := svc.Create(context.Background(), CreatePostRequest{
+			_, err := svc.Create(context.Background(), contract.CreatePostRequest{
 				Title:   "Test Post",
 				Content: "Content",
 				Slug:    fmt.Sprintf("test-post-%d", i),
@@ -548,7 +550,7 @@ func TestPostService_List(t *testing.T) {
 			}
 		}
 
-		resp, err := svc.List(context.Background(), ListPostsRequest{
+		resp, err := svc.List(context.Background(), contract.ListPostsRequest{
 			Limit:  2,
 			Offset: 0,
 		})
@@ -572,7 +574,7 @@ func TestPostService_List(t *testing.T) {
 		svc := NewPostService(repo)
 
 		for i := range 3 {
-			_, err := svc.Create(context.Background(), CreatePostRequest{
+			_, err := svc.Create(context.Background(), contract.CreatePostRequest{
 				Title:     "Published Post",
 				Content:   "Content",
 				Slug:      fmt.Sprintf("published-%d", i),
@@ -583,7 +585,7 @@ func TestPostService_List(t *testing.T) {
 			}
 		}
 		for i := range 2 {
-			_, err := svc.Create(context.Background(), CreatePostRequest{
+			_, err := svc.Create(context.Background(), contract.CreatePostRequest{
 				Title:     "Draft Post",
 				Content:   "Content",
 				Slug:      fmt.Sprintf("draft-%d", i),
@@ -595,7 +597,7 @@ func TestPostService_List(t *testing.T) {
 		}
 
 		published := true
-		resp, err := svc.List(context.Background(), ListPostsRequest{
+		resp, err := svc.List(context.Background(), contract.ListPostsRequest{
 			Published: &published,
 		})
 		if err != nil {
@@ -611,7 +613,7 @@ func TestPostService_List(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		resp, err := svc.List(context.Background(), ListPostsRequest{})
+		resp, err := svc.List(context.Background(), contract.ListPostsRequest{})
 		if err != nil {
 			t.Fatalf("List() error = %v", err)
 		}
@@ -628,7 +630,7 @@ func TestPostService_List(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		resp, err := svc.List(context.Background(), ListPostsRequest{
+		resp, err := svc.List(context.Background(), contract.ListPostsRequest{
 			Limit: 200,
 		})
 		if err != nil {
@@ -646,7 +648,7 @@ func TestPostService_Update(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		created, err := svc.Create(context.Background(), CreatePostRequest{
+		created, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Original Title",
 			Content: "Original content",
 			Slug:    "original-slug",
@@ -656,7 +658,7 @@ func TestPostService_Update(t *testing.T) {
 		}
 
 		newTitle := "Updated Title"
-		resp, err := svc.Update(context.Background(), UpdatePostRequest{
+		resp, err := svc.Update(context.Background(), contract.UpdatePostRequest{
 			ID:    created.ID,
 			Title: &newTitle,
 		})
@@ -674,7 +676,7 @@ func TestPostService_Update(t *testing.T) {
 		svc := NewPostService(repo)
 
 		newTitle := "Updated Title"
-		_, err := svc.Update(context.Background(), UpdatePostRequest{
+		_, err := svc.Update(context.Background(), contract.UpdatePostRequest{
 			Title: &newTitle,
 		})
 		if err != ErrPostIDRequired {
@@ -687,7 +689,7 @@ func TestPostService_Update(t *testing.T) {
 		svc := NewPostService(repo)
 
 		newTitle := "Updated Title"
-		_, err := svc.Update(context.Background(), UpdatePostRequest{
+		_, err := svc.Update(context.Background(), contract.UpdatePostRequest{
 			ID:    uuid.New().String(),
 			Title: &newTitle,
 		})
@@ -700,7 +702,7 @@ func TestPostService_Update(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		created, err := svc.Create(context.Background(), CreatePostRequest{
+		created, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Original Title",
 			Content: "Content",
 			Slug:    "test-slug",
@@ -710,7 +712,7 @@ func TestPostService_Update(t *testing.T) {
 		}
 
 		emptyTitle := ""
-		_, err = svc.Update(context.Background(), UpdatePostRequest{
+		_, err = svc.Update(context.Background(), contract.UpdatePostRequest{
 			ID:    created.ID,
 			Title: &emptyTitle,
 		})
@@ -725,7 +727,7 @@ func TestPostService_Delete(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		created, err := svc.Create(context.Background(), CreatePostRequest{
+		created, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Content",
 			Slug:    "test-slug",
@@ -734,7 +736,7 @@ func TestPostService_Delete(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		resp, err := svc.Delete(context.Background(), DeletePostRequest{
+		resp, err := svc.Delete(context.Background(), contract.DeletePostRequest{
 			ID: created.ID,
 		})
 		if err != nil {
@@ -748,7 +750,7 @@ func TestPostService_Delete(t *testing.T) {
 			t.Errorf("expected ID %q, got %q", created.ID, resp.ID)
 		}
 
-		_, err = svc.Get(context.Background(), GetPostRequest{ID: created.ID})
+		_, err = svc.Get(context.Background(), contract.GetPostRequest{ID: created.ID})
 		if err != ErrPostNotFound {
 			t.Errorf("expected ErrPostNotFound after delete, got %v", err)
 		}
@@ -758,7 +760,7 @@ func TestPostService_Delete(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Delete(context.Background(), DeletePostRequest{})
+		_, err := svc.Delete(context.Background(), contract.DeletePostRequest{})
 		if err != ErrPostIDRequired {
 			t.Errorf("expected ErrPostIDRequired, got %v", err)
 		}
@@ -768,7 +770,7 @@ func TestPostService_Delete(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Delete(context.Background(), DeletePostRequest{ID: "not-a-uuid"})
+		_, err := svc.Delete(context.Background(), contract.DeletePostRequest{ID: "not-a-uuid"})
 		if err != ErrPostIDInvalid {
 			t.Errorf("expected ErrPostIDInvalid, got %v", err)
 		}
@@ -780,7 +782,7 @@ func TestPostService_Publish(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		created, err := svc.Create(context.Background(), CreatePostRequest{
+		created, err := svc.Create(context.Background(), contract.CreatePostRequest{
 			Title:     "Draft Post",
 			Content:   "Content",
 			Slug:      "draft-slug",
@@ -794,7 +796,7 @@ func TestPostService_Publish(t *testing.T) {
 			t.Error("expected initial Published to be false")
 		}
 
-		resp, err := svc.Publish(context.Background(), PublishPostRequest{
+		resp, err := svc.Publish(context.Background(), contract.PublishPostRequest{
 			ID: created.ID,
 		})
 		if err != nil {
@@ -810,7 +812,7 @@ func TestPostService_Publish(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Publish(context.Background(), PublishPostRequest{})
+		_, err := svc.Publish(context.Background(), contract.PublishPostRequest{})
 		if err != ErrPostIDRequired {
 			t.Errorf("expected ErrPostIDRequired, got %v", err)
 		}
@@ -820,7 +822,7 @@ func TestPostService_Publish(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Publish(context.Background(), PublishPostRequest{ID: "not-a-uuid"})
+		_, err := svc.Publish(context.Background(), contract.PublishPostRequest{ID: "not-a-uuid"})
 		if err != ErrPostIDInvalid {
 			t.Errorf("expected ErrPostIDInvalid, got %v", err)
 		}
@@ -830,7 +832,7 @@ func TestPostService_Publish(t *testing.T) {
 		repo := newMockPostRepository()
 		svc := NewPostService(repo)
 
-		_, err := svc.Publish(context.Background(), PublishPostRequest{
+		_, err := svc.Publish(context.Background(), contract.PublishPostRequest{
 			ID: uuid.New().String(),
 		})
 		if err != ErrPostNotFound {
@@ -848,7 +850,7 @@ func TestCommentService_Create(t *testing.T) {
 		postSvc := NewPostService(postRepo)
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		post, err := postSvc.Create(context.Background(), CreatePostRequest{
+		post, err := postSvc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Content",
 			Slug:    "test-post",
@@ -857,7 +859,7 @@ func TestCommentService_Create(t *testing.T) {
 			t.Fatalf("Create post error = %v", err)
 		}
 
-		resp, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		resp, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID:  post.ID,
 			Author:  "Test Author",
 			Content: "Test comment content",
@@ -879,7 +881,7 @@ func TestCommentService_Create(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		_, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			Author:  "Test Author",
 			Content: "Test content",
 		})
@@ -893,7 +895,7 @@ func TestCommentService_Create(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		_, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID:  uuid.New().String(),
 			Content: "Test content",
 		})
@@ -907,7 +909,7 @@ func TestCommentService_Create(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		_, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID: uuid.New().String(),
 			Author: "Test Author",
 		})
@@ -923,7 +925,7 @@ func TestCommentService_Create(t *testing.T) {
 		commentRepo.createErr = ErrPostDoesNotExist
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		_, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID:  uuid.New().String(),
 			Author:  "Test Author",
 			Content: "Test content",
@@ -941,7 +943,7 @@ func TestCommentService_Get(t *testing.T) {
 		postSvc := NewPostService(postRepo)
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		post, err := postSvc.Create(context.Background(), CreatePostRequest{
+		post, err := postSvc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Content",
 			Slug:    "test-post",
@@ -950,7 +952,7 @@ func TestCommentService_Get(t *testing.T) {
 			t.Fatalf("Create post error = %v", err)
 		}
 
-		created, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		created, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID:  post.ID,
 			Author:  "Test Author",
 			Content: "Test content",
@@ -959,7 +961,7 @@ func TestCommentService_Get(t *testing.T) {
 			t.Fatalf("Create comment error = %v", err)
 		}
 
-		resp, err := commentSvc.Get(context.Background(), GetCommentRequest{ID: created.ID})
+		resp, err := commentSvc.Get(context.Background(), contract.GetCommentRequest{ID: created.ID})
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -974,7 +976,7 @@ func TestCommentService_Get(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Get(context.Background(), GetCommentRequest{})
+		_, err := commentSvc.Get(context.Background(), contract.GetCommentRequest{})
 		if err != ErrCommentIDRequired {
 			t.Errorf("expected ErrCommentIDRequired, got %v", err)
 		}
@@ -985,7 +987,7 @@ func TestCommentService_Get(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Get(context.Background(), GetCommentRequest{ID: "not-a-uuid"})
+		_, err := commentSvc.Get(context.Background(), contract.GetCommentRequest{ID: "not-a-uuid"})
 		if err != ErrCommentIDInvalid {
 			t.Errorf("expected ErrCommentIDInvalid, got %v", err)
 		}
@@ -996,7 +998,7 @@ func TestCommentService_Get(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Get(context.Background(), GetCommentRequest{ID: uuid.New().String()})
+		_, err := commentSvc.Get(context.Background(), contract.GetCommentRequest{ID: uuid.New().String()})
 		if err != ErrCommentNotFound {
 			t.Errorf("expected ErrCommentNotFound, got %v", err)
 		}
@@ -1010,7 +1012,7 @@ func TestCommentService_List(t *testing.T) {
 		postSvc := NewPostService(postRepo)
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		post, err := postSvc.Create(context.Background(), CreatePostRequest{
+		post, err := postSvc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Content",
 			Slug:    "test-post",
@@ -1020,7 +1022,7 @@ func TestCommentService_List(t *testing.T) {
 		}
 
 		for i := range 5 {
-			_, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+			_, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 				PostID:  post.ID,
 				Author:  fmt.Sprintf("Author %d", i),
 				Content: fmt.Sprintf("Comment %d", i),
@@ -1030,7 +1032,7 @@ func TestCommentService_List(t *testing.T) {
 			}
 		}
 
-		resp, err := commentSvc.List(context.Background(), ListCommentsRequest{
+		resp, err := commentSvc.List(context.Background(), contract.ListCommentsRequest{
 			PostID: post.ID,
 			Limit:  2,
 			Offset: 0,
@@ -1052,7 +1054,7 @@ func TestCommentService_List(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.List(context.Background(), ListCommentsRequest{})
+		_, err := commentSvc.List(context.Background(), contract.ListCommentsRequest{})
 		if err != ErrCommentPostIDRequired {
 			t.Errorf("expected ErrCommentPostIDRequired, got %v", err)
 		}
@@ -1063,7 +1065,7 @@ func TestCommentService_List(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.List(context.Background(), ListCommentsRequest{PostID: "not-a-uuid"})
+		_, err := commentSvc.List(context.Background(), contract.ListCommentsRequest{PostID: "not-a-uuid"})
 		if err != ErrCommentPostIDInvalid {
 			t.Errorf("expected ErrCommentPostIDInvalid, got %v", err)
 		}
@@ -1077,7 +1079,7 @@ func TestCommentService_Update(t *testing.T) {
 		postSvc := NewPostService(postRepo)
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		post, err := postSvc.Create(context.Background(), CreatePostRequest{
+		post, err := postSvc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Content",
 			Slug:    "test-post",
@@ -1086,7 +1088,7 @@ func TestCommentService_Update(t *testing.T) {
 			t.Fatalf("Create post error = %v", err)
 		}
 
-		created, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		created, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID:  post.ID,
 			Author:  "Original Author",
 			Content: "Original content",
@@ -1096,7 +1098,7 @@ func TestCommentService_Update(t *testing.T) {
 		}
 
 		newAuthor := "Updated Author"
-		resp, err := commentSvc.Update(context.Background(), UpdateCommentRequest{
+		resp, err := commentSvc.Update(context.Background(), contract.UpdateCommentRequest{
 			ID:     created.ID,
 			Author: &newAuthor,
 		})
@@ -1115,7 +1117,7 @@ func TestCommentService_Update(t *testing.T) {
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
 		newAuthor := "Updated Author"
-		_, err := commentSvc.Update(context.Background(), UpdateCommentRequest{
+		_, err := commentSvc.Update(context.Background(), contract.UpdateCommentRequest{
 			Author: &newAuthor,
 		})
 		if err != ErrCommentIDRequired {
@@ -1129,7 +1131,7 @@ func TestCommentService_Update(t *testing.T) {
 		postSvc := NewPostService(postRepo)
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		post, err := postSvc.Create(context.Background(), CreatePostRequest{
+		post, err := postSvc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Content",
 			Slug:    "test-post",
@@ -1138,7 +1140,7 @@ func TestCommentService_Update(t *testing.T) {
 			t.Fatalf("Create post error = %v", err)
 		}
 
-		created, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		created, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID:  post.ID,
 			Author:  "Original Author",
 			Content: "Original content",
@@ -1148,7 +1150,7 @@ func TestCommentService_Update(t *testing.T) {
 		}
 
 		emptyAuthor := ""
-		_, err = commentSvc.Update(context.Background(), UpdateCommentRequest{
+		_, err = commentSvc.Update(context.Background(), contract.UpdateCommentRequest{
 			ID:     created.ID,
 			Author: &emptyAuthor,
 		})
@@ -1165,7 +1167,7 @@ func TestCommentService_Delete(t *testing.T) {
 		postSvc := NewPostService(postRepo)
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		post, err := postSvc.Create(context.Background(), CreatePostRequest{
+		post, err := postSvc.Create(context.Background(), contract.CreatePostRequest{
 			Title:   "Test Post",
 			Content: "Content",
 			Slug:    "test-post",
@@ -1174,7 +1176,7 @@ func TestCommentService_Delete(t *testing.T) {
 			t.Fatalf("Create post error = %v", err)
 		}
 
-		created, err := commentSvc.Create(context.Background(), CreateCommentRequest{
+		created, err := commentSvc.Create(context.Background(), contract.CreateCommentRequest{
 			PostID:  post.ID,
 			Author:  "Test Author",
 			Content: "Test content",
@@ -1183,7 +1185,7 @@ func TestCommentService_Delete(t *testing.T) {
 			t.Fatalf("Create comment error = %v", err)
 		}
 
-		resp, err := commentSvc.Delete(context.Background(), DeleteCommentRequest{ID: created.ID})
+		resp, err := commentSvc.Delete(context.Background(), contract.DeleteCommentRequest{ID: created.ID})
 		if err != nil {
 			t.Fatalf("Delete() error = %v", err)
 		}
@@ -1192,7 +1194,7 @@ func TestCommentService_Delete(t *testing.T) {
 			t.Error("expected Deleted to be true")
 		}
 
-		_, err = commentSvc.Get(context.Background(), GetCommentRequest{ID: created.ID})
+		_, err = commentSvc.Get(context.Background(), contract.GetCommentRequest{ID: created.ID})
 		if err != ErrCommentNotFound {
 			t.Errorf("expected ErrCommentNotFound after delete, got %v", err)
 		}
@@ -1203,7 +1205,7 @@ func TestCommentService_Delete(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Delete(context.Background(), DeleteCommentRequest{})
+		_, err := commentSvc.Delete(context.Background(), contract.DeleteCommentRequest{})
 		if err != ErrCommentIDRequired {
 			t.Errorf("expected ErrCommentIDRequired, got %v", err)
 		}
@@ -1214,7 +1216,7 @@ func TestCommentService_Delete(t *testing.T) {
 		commentRepo := newMockCommentRepository()
 		commentSvc := NewCommentService(commentRepo, postRepo)
 
-		_, err := commentSvc.Delete(context.Background(), DeleteCommentRequest{ID: "not-a-uuid"})
+		_, err := commentSvc.Delete(context.Background(), contract.DeleteCommentRequest{ID: "not-a-uuid"})
 		if err != ErrCommentIDInvalid {
 			t.Errorf("expected ErrCommentIDInvalid, got %v", err)
 		}

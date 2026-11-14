@@ -1,6 +1,6 @@
 # Prisma + sqlc PostgreSQL Demo
 
-A mono framework recipe demonstrating how to combine **Prisma for infrastructure** (local development, migrations) with **sqlc for database access** (type-safe Go code generation).
+A [mono](https://github.com/go-monolith/mono) framework (v0.1.1) recipe demonstrating how to combine **Prisma for infrastructure** (local development, migrations) with **sqlc for database access** (type-safe Go code generation).
 
 ## Why Prisma + sqlc?
 
@@ -227,10 +227,12 @@ prisma-postgres-demo/
 │           └── migration.sql
 ├── modules/
 │   └── article/
+│       ├── contract/
+│       │   └── contract.go           # Published port: DTOs + typed service contracts
 │       ├── module.go                 # ArticleModule (ServiceProviderModule)
+│       ├── module_test.go            # monotest.CheckModule conformance tests
 │       ├── service.go                # ArticleService business logic
 │       ├── repository.go             # PostgresRepository using sqlc
-│       ├── types.go                  # Request/Response DTOs
 │       ├── service_test.go           # Unit tests with mock repository
 │       ├── repository_test.go        # Integration tests
 │       └── db/
@@ -271,6 +273,32 @@ nats request services.article.list '{"published": true, "limit": 10}'
 
 ```bash
 nats request services.article.publish '{"id": "article-uuid-here"}'
+```
+
+## Module Boundaries
+
+With mono v0.1.1, the article module follows the framework's Ports and Adapters rules:
+
+- `modules/<module>/contract` is each module's published port: request/response
+  DTOs and the typed contracts (`helper.RequestReplyService`). It imports only
+  the standard library and `mono/pkg/helper`, never the module package or the
+  sqlc-generated `db/generated` package; the service layer maps the generated
+  rows to the contract DTOs. It is the only package of a module other modules
+  may import.
+- `RegisterServices` registers every handler through its contract, for example
+  `contract.CreateArticle.Register(container, m.handleCreate)`, so no service
+  name is written as a string in module code. Callers use the same value:
+  `contract.CreateArticle.Call(ctx, container, contract.CreateArticleRequest{...})`.
+- `main.go` runs with `mono.WithStrictModuleBoundaries()`, which rejects
+  boundary violations instead of only reporting them when the app stops.
+- `modules/<module>/module_test.go` runs `monotest.CheckModule` and calls every
+  contract, once with in-memory services injected through the module's
+  `NewModuleWithService(s)` constructor (no database needed) and once against
+  PostgreSQL when `TEST_DATABASE_URL` (default: the local Prisma Postgres dev
+  server) is reachable, skipping otherwise:
+
+```bash
+go test ./modules/... -run Conformance -v
 ```
 
 ## Trade-offs

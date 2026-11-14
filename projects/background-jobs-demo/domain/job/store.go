@@ -19,12 +19,14 @@ func NewStore() *Store {
 	}
 }
 
-// Create stores a new job.
+// Create stores a copy of a new job, so the caller's value is not shared with
+// the worker that updates the stored job concurrently.
 func (s *Store) Create(job *Job) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.jobs[job.ID] = job
+	jobCopy := *job
+	s.jobs[job.ID] = &jobCopy
 	return nil
 }
 
@@ -58,7 +60,9 @@ func (s *Store) List(status JobStatus, jobType JobType, limit, offset int) []*Jo
 		if jobType != "" && job.Type != jobType {
 			continue
 		}
-		allJobs = append(allJobs, job)
+		// Copy, as GetByID does: the stored job is updated concurrently
+		jobCopy := *job
+		allJobs = append(allJobs, &jobCopy)
 	}
 
 	// Apply pagination

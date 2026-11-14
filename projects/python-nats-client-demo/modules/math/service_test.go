@@ -3,12 +3,14 @@ package math
 import (
 	"context"
 	"testing"
+
+	"github.com/example/python-nats-client-demo/modules/math/contract"
 )
 
 func TestPerformOperation(t *testing.T) {
 	tests := []struct {
 		name      string
-		op        Operation
+		op        contract.Operation
 		a         float64
 		b         float64
 		want      float64
@@ -16,56 +18,56 @@ func TestPerformOperation(t *testing.T) {
 	}{
 		{
 			name: "add two positive numbers",
-			op:   OpAdd,
+			op:   contract.OpAdd,
 			a:    10,
 			b:    5,
 			want: 15,
 		},
 		{
 			name: "add negative numbers",
-			op:   OpAdd,
+			op:   contract.OpAdd,
 			a:    -10,
 			b:    -5,
 			want: -15,
 		},
 		{
 			name: "subtract",
-			op:   OpSubtract,
+			op:   contract.OpSubtract,
 			a:    100,
 			b:    42,
 			want: 58,
 		},
 		{
 			name: "subtract resulting in negative",
-			op:   OpSubtract,
+			op:   contract.OpSubtract,
 			a:    5,
 			b:    10,
 			want: -5,
 		},
 		{
 			name: "multiply",
-			op:   OpMultiply,
+			op:   contract.OpMultiply,
 			a:    7,
 			b:    8,
 			want: 56,
 		},
 		{
 			name: "multiply by zero",
-			op:   OpMultiply,
+			op:   contract.OpMultiply,
 			a:    100,
 			b:    0,
 			want: 0,
 		},
 		{
 			name: "divide",
-			op:   OpDivide,
+			op:   contract.OpDivide,
 			a:    100,
 			b:    4,
 			want: 25,
 		},
 		{
 			name:      "divide by zero",
-			op:        OpDivide,
+			op:        contract.OpDivide,
 			a:         10,
 			b:         0,
 			want:      0,
@@ -73,35 +75,35 @@ func TestPerformOperation(t *testing.T) {
 		},
 		{
 			name: "power",
-			op:   OpPower,
+			op:   contract.OpPower,
 			a:    2,
 			b:    10,
 			want: 1024,
 		},
 		{
 			name: "power of zero",
-			op:   OpPower,
+			op:   contract.OpPower,
 			a:    0,
 			b:    5,
 			want: 0,
 		},
 		{
 			name: "sqrt positive",
-			op:   OpSqrt,
+			op:   contract.OpSqrt,
 			a:    144,
 			b:    0,
 			want: 12,
 		},
 		{
 			name: "sqrt of zero",
-			op:   OpSqrt,
+			op:   contract.OpSqrt,
 			a:    0,
 			b:    0,
 			want: 0,
 		},
 		{
 			name:      "sqrt negative",
-			op:        OpSqrt,
+			op:        contract.OpSqrt,
 			a:         -16,
 			b:         0,
 			want:      0,
@@ -148,27 +150,27 @@ func TestCalculateResponse(t *testing.T) {
 	m := &MathModule{}
 
 	tests := []struct {
-		name        string
-		req         CalculateRequest
-		wantResult  float64
-		wantError   string
-		wantOp      Operation
+		name       string
+		req        contract.CalculateRequest
+		wantResult float64
+		wantError  string
+		wantOp     contract.Operation
 	}{
 		{
 			name:       "successful add",
-			req:        CalculateRequest{Operation: OpAdd, A: 5, B: 3},
+			req:        contract.CalculateRequest{Operation: contract.OpAdd, A: 5, B: 3},
 			wantResult: 8,
-			wantOp:     OpAdd,
+			wantOp:     contract.OpAdd,
 		},
 		{
 			name:      "division by zero returns error in response",
-			req:       CalculateRequest{Operation: OpDivide, A: 10, B: 0},
+			req:       contract.CalculateRequest{Operation: contract.OpDivide, A: 10, B: 0},
 			wantError: "division by zero",
-			wantOp:    OpDivide,
+			wantOp:    contract.OpDivide,
 		},
 		{
 			name:      "invalid operation returns error in response",
-			req:       CalculateRequest{Operation: "unknown", A: 1, B: 2},
+			req:       contract.CalculateRequest{Operation: "unknown", A: 1, B: 2},
 			wantError: "invalid operation",
 			wantOp:    "unknown",
 		},

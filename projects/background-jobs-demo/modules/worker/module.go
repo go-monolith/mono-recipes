@@ -1,18 +1,25 @@
-// Package worker provides job processing with QueueGroupService pattern.
+// Package worker owns the background jobs: their state (an in-memory job
+// store no other module can reach) and their processing with the
+// QueueGroupService pattern. Other modules create and query jobs through
+// worker/contract and never import this package.
 package worker
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"log"
 
-	"github.com/example/background-jobs-demo/domain/job"
 	"github.com/go-monolith/mono"
+	"github.com/go-monolith/mono/pkg/types"
+
+	"github.com/example/background-jobs-demo/domain/job"
+	"github.com/example/background-jobs-demo/modules/worker/contract"
 )
 
+// Queue groups of the process-job service. Every queue group receives each
+// job message once and ignores the job types it does not handle, so each job
+// type is processed by its own serial worker.
 const (
-	// ServiceName is the name of the QueueGroupService for job processing.
-	ServiceName = "process-job"
 	// QueueGroupEmail is the queue group for email jobs.
 	QueueGroupEmail = "email-worker"
 	// QueueGroupImageProcessing is the queue group for image processing jobs.
@@ -21,10 +28,11 @@ const (
 	QueueGroupReportGeneration = "report-generation-worker"
 )
 
-// Module provides job processing via QueueGroupService.
+// Module provides job state and job processing via QueueGroupService.
 type Module struct {
 	jobStore  *job.Store
 	processor *Processor
+	container mono.ServiceContainer // own container, to enqueue on ProcessJob
 }
 
 // Compile-time interface checks.
@@ -33,10 +41,10 @@ var (
 	_ mono.ServiceProviderModule = (*Module)(nil)
 )
 
-// NewModule creates a new worker module.
-func NewModule(jobStore *job.Store) *Module {
+// NewModule creates a new worker module with an empty job store.
+func NewModule() *Module {
 	return &Module{
-		jobStore: jobStore,
+		jobStore: job.NewStore(),
 	}
 }
 
@@ -45,22 +53,33 @@ func (m *Module) Name() string {
 	return "worker"
 }
 
-// RegisterServices registers the QueueGroupService with 3 queue groups for job processing.
-// Each queue group handles a specific job type, filtering and ignoring non-matching jobs.
+// RegisterServices registers the job state contracts (create-job, get-job,
+// list-jobs) and the process-job contract with 3 queue groups. Each queue
+// group handles a specific job type, ignoring non-matching jobs.
 func (m *Module) RegisterServices(container mono.ServiceContainer) error {
 	m.processor = NewProcessor()
+	m.container = container
 
-	return container.RegisterQueueGroupService(
-		ServiceName,
-		mono.QGHP{
+	if err := contract.CreateJob.Register(container, m.createJob); err != nil {
+		return fmt.Errorf("failed to register %s: %w", contract.CreateJob.Name, err)
+	}
+	if err := contract.GetJob.Register(container, m.getJob); err != nil {
+		return fmt.Errorf("failed to register %s: %w", contract.GetJob.Name, err)
+	}
+	if err := contract.ListJobs.Register(container, m.listJobs); err != nil {
+		return fmt.Errorf("failed to register %s: %w", contract.ListJobs.Name, err)
+	}
+
+	return contract.ProcessJob.Register(container,
+		types.TypedQGHP[contract.JobMessage]{
 			QueueGroup: QueueGroupEmail,
 			Handler:    m.handleJobTypeEmail,
 		},
-		mono.QGHP{
+		types.TypedQGHP[contract.JobMessage]{
 			QueueGroup: QueueGroupImageProcessing,
 			Handler:    m.handleJobTypeImageProcessing,
 		},
-		mono.QGHP{
+		types.TypedQGHP[contract.JobMessage]{
 			QueueGroup: QueueGroupReportGeneration,
 			Handler:    m.handleJobTypeReportGeneration,
 		},
@@ -80,33 +99,36 @@ func (m *Module) Stop(_ context.Context) error {
 }
 
 // handleJobTypeEmail handles email jobs, ignoring other job types.
-func (m *Module) handleJobTypeEmail(ctx context.Context, msg *mono.Msg) error {
+func (m *Module) handleJobTypeEmail(ctx context.Context, msg contract.JobMessage, _ *mono.Msg) error {
 	return m.handleJobOfType(ctx, msg, job.JobTypeEmail, QueueGroupEmail)
 }
 
 // handleJobTypeImageProcessing handles image processing jobs, ignoring other job types.
-func (m *Module) handleJobTypeImageProcessing(ctx context.Context, msg *mono.Msg) error {
+func (m *Module) handleJobTypeImageProcessing(ctx context.Context, msg contract.JobMessage, _ *mono.Msg) error {
 	return m.handleJobOfType(ctx, msg, job.JobTypeImageProcessing, QueueGroupImageProcessing)
 }
 
 // handleJobTypeReportGeneration handles report generation jobs, ignoring other job types.
-func (m *Module) handleJobTypeReportGeneration(ctx context.Context, msg *mono.Msg) error {
+func (m *Module) handleJobTypeReportGeneration(ctx context.Context, msg contract.JobMessage, _ *mono.Msg) error {
 	return m.handleJobOfType(ctx, msg, job.JobTypeReportGeneration, QueueGroupReportGeneration)
 }
 
 // handleJobOfType processes jobs of the specified type, ignoring others.
-func (m *Module) handleJobOfType(ctx context.Context, msg *mono.Msg, jobType job.JobType, workerID string) error {
-	var j job.Job
-	if err := json.Unmarshal(msg.Data, &j); err != nil {
-		log.Printf("[%s] Error unmarshaling job: %v", workerID, err)
+func (m *Module) handleJobOfType(ctx context.Context, msg contract.JobMessage, jobType job.JobType, workerID string) error {
+	if job.JobType(msg.Type) != jobType {
 		return nil
 	}
 
-	if j.Type != jobType {
-		return nil
+	j := &job.Job{
+		ID:         msg.ID,
+		Type:       jobType,
+		Status:     job.JobStatusPending,
+		Payload:    msg.Payload,
+		Priority:   msg.Priority,
+		MaxRetries: msg.MaxRetries,
+		CreatedAt:  msg.CreatedAt,
 	}
-
-	return m.processJob(ctx, &j, workerID)
+	return m.processJob(ctx, j, workerID)
 }
 
 // processJob is the common job processing logic used by all type-specific handlers.

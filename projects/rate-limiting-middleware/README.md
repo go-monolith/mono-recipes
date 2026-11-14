@@ -1,6 +1,6 @@
 # Rate Limiting Middleware Recipe
 
-This recipe demonstrates how to implement **rate limiting** as a middleware module in the mono framework. The middleware intercepts service registrations and wraps request-reply handlers with per-client, per-service rate limits using Redis.
+This recipe demonstrates how to implement **rate limiting** as a middleware module in the mono framework (mono **v0.1.1**). The middleware intercepts service registrations and wraps request-reply handlers with per-client, per-service rate limits using Redis. The API module registers its services through typed contracts and knows nothing about rate limiting.
 
 ## Key Concepts
 
@@ -37,18 +37,24 @@ This recipe uses a **sliding window** algorithm with Redis sorted sets for accur
 
 ```
 rate-limiting-middleware/
-├── main.go                       # Application entry point
+├── main.go                       # Application entry point (strict module boundaries)
+├── integration_test.go           # Real-app test: middleware + api (needs REDIS_ADDR)
 ├── go.mod
 ├── docker-compose.yml            # Redis container
+├── demo.sh                       # nats CLI demo
 ├── middleware/
 │   └── ratelimit/
 │       ├── config.go             # Configuration and options
 │       ├── limiter.go            # Redis sliding window limiter
-│       └── middleware.go         # MiddlewareModule implementation
+│       ├── middleware.go         # MiddlewareModule implementation
+│       └── *_test.go             # Unit tests (no Redis needed)
 └── modules/
     └── api/
-        ├── module.go             # API services (request-reply)
-        └── types.go              # Request/response types
+        ├── contract/
+        │   └── contract.go       # Published port: DTOs + typed service contracts
+        ├── module.go             # Domain handlers + RegisterServices via contracts
+        ├── handlers_test.go      # Handler unit tests
+        └── module_test.go        # monotest.CheckModule conformance test
 ```
 
 ## Features
@@ -72,16 +78,15 @@ ratelimit.New(
     // Default limit for all services
     ratelimit.WithDefaultLimit(100, time.Minute),
 
-    // Per-service limits
-    ratelimit.WithServiceLimit("create-order", 50, time.Minute),
-    ratelimit.WithServiceLimit("get-status", 200, time.Minute),
+    // Per-service limits, keyed by service name (taken from the contracts)
+    ratelimit.WithServiceLimit(apicontract.CreateOrder.Name, 50, time.Minute),
+    ratelimit.WithServiceLimit(apicontract.GetStatus.Name, 200, time.Minute),
 
     // Key prefix for Redis keys
     ratelimit.WithKeyPrefix("ratelimit:"),
 
-    // Client ID extraction from headers
+    // Client ID extraction from headers (fallback client ID: "anonymous")
     ratelimit.WithClientIDHeader("X-Client-ID"),
-    ratelimit.WithFallbackClientID("anonymous"),
 )
 ```
 
@@ -89,7 +94,7 @@ ratelimit.New(
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.25+
 - Docker and Docker Compose
 - NATS CLI (`nats`)
 
@@ -102,8 +107,11 @@ docker-compose up -d
 ### Run the Application
 
 ```bash
-go run main.go
+go build -o bin/rate-limiting-middleware . && ./bin/rate-limiting-middleware
+# or: go run .
 ```
+
+`REDIS_ADDR` (default `localhost:6379`) and `REDIS_PASSWORD` configure Redis. The middleware's `Start` pings Redis, so the application does not start without it.
 
 ### Test Rate Limiting
 
@@ -123,6 +131,8 @@ nats request services.api.create-order '{"product_id":"prod-123","quantity":1,"p
 nats request services.api.get-status '{}' --header X-Client-ID:client1
 ```
 
+`get-data` and `get-status` take no parameters and also accept an empty body (`nats request services.api.get-data ""`).
+
 ### Using the Demo Script
 
 ```bash
@@ -138,12 +148,30 @@ Middleware must be registered **before** regular modules:
 ```go
 // main.go
 app.Register(rateLimitMiddleware)  // First: middleware
-app.Register(apiModule)             // Then: regular modules
+app.Register(apiModule)            // Then: regular modules
 ```
 
 ### 2. Service Registration Interception
 
-When the API module registers its services, the middleware intercepts each registration:
+The API module registers its services through typed contracts declared in `modules/api/contract`:
+
+```go
+// modules/api/contract/contract.go
+var CreateOrder = helper.RequestReplyService[OrderRequest, OrderResponse]("api", "create-order")
+
+// modules/api/module.go
+func (m *Module) RegisterServices(container mono.ServiceContainer) error {
+    if err := contract.GetData.Register(container, m.handleGetData); err != nil {
+        return err
+    }
+    if err := contract.CreateOrder.Register(container, m.handleCreateOrder); err != nil {
+        return err
+    }
+    return contract.GetStatus.Register(container, m.handleGetStatus)
+}
+```
+
+`Register` wraps the typed handler into a plain `RequestReplyHandler` (JSON decode, call, JSON encode) and registers it on the container, so every registration still passes through the middleware chain. The middleware intercepts each one:
 
 ```go
 func (m *Middleware) OnServiceRegistration(
@@ -170,15 +198,17 @@ func (m *Middleware) OnServiceRegistration(
         }
 
         if !result.Allowed {
-            return rateLimitErrorResponse, nil
+            return nil, &RateLimitError{...} // becomes an error reply
         }
 
         return original(ctx, req)
     }
 
-    return reg
+    return reg // every other field, including reg.Options, is unchanged
 }
 ```
+
+The middleware only replaces `reg.RequestHandler` on the registration it receives and returns it, so per-service worker pool options (`reg.Options`, mono v0.0.15+) are preserved. Since mono v0.0.15, request-reply handlers run concurrently on a worker pool; the Lua script keeps the check-and-increment atomic, and the handler context ends at the caller's deadline, which also bounds the Redis call.
 
 ### 3. Sliding Window Algorithm
 
@@ -206,16 +236,31 @@ end
 
 ## Rate Limit Response
 
-When rate limit is exceeded:
+When the rate limit is exceeded, the handler returns a `*ratelimit.RateLimitError` and the framework sends an error reply with an empty body and these headers:
 
-```json
-{
-    "error": "rate limit exceeded for service get-data",
-    "remaining": 0,
-    "reset_at": "2024-01-15T10:30:00Z",
-    "limit": 100
-}
 ```
+Mono-Error: true
+Mono-Error-Message: rate limit exceeded for service create-order
+Mono-Error-Type: ratelimit
+```
+
+A Go caller gets it as the error of the contract call (`contract api/create-order (request_reply): ... rate limit exceeded for service create-order`). The limit, remaining count and reset time are logged by the middleware.
+
+## Module Boundaries
+
+The recipe follows the module boundaries path of mono v0.1.x:
+
+- **Contract package**: `modules/api/contract` holds the DTOs and the typed contracts (`GetData`, `CreateOrder`, `GetStatus`). It imports only the standard library and `mono/pkg/helper`, and is the only api package other code may import. Subjects stay `services.api.<service>`.
+- **No consumers inside the app**: the services are called from outside (nats CLI, `demo.sh`), so the api module has no `ConsumeServices()` and there are no ports or adapters. The provider-owned `ServiceAdapter` of earlier versions was removed; a module that needs these services would own its port and adapter and call `contract.X.Call`.
+- **Strict mode**: `main.go` runs with `mono.WithStrictModuleBoundaries()`.
+- **Tests**:
+
+```bash
+go test ./...                                            # unit + monotest.CheckModule (no Redis needed)
+REDIS_ADDR=localhost:6379 go test -run Integration .     # real app: middleware wraps the contract services
+```
+
+`monotest` has no middleware chain, so the conformance test (`modules/api/module_test.go`) checks the api module alone; the middleware is covered by its unit tests and by `integration_test.go`, which is skipped when `REDIS_ADDR` is not set.
 
 ## Best Practices
 
@@ -225,8 +270,10 @@ When rate limit is exceeded:
 4. **Distributed rate limiting**: Redis ensures rate limits work across multiple application instances
 5. **Monitor rate limit events**: Log rate limit hits for capacity planning
 
-## Related Recipes
+## Related Middleware
 
-- [Request ID Middleware](../request-id-middleware/) - Add request tracing
-- [Access Log Middleware](../access-log-middleware/) - Request/response logging
-- [Audit Trail Middleware](../audit-middleware/) - Tamper-evident audit logging
+The mono framework ships ready-made middleware in `github.com/go-monolith/mono/middleware`:
+
+- `middleware/requestid` - Add request tracing
+- `middleware/accesslog` - Request/response logging
+- `middleware/audit` - Tamper-evident audit logging

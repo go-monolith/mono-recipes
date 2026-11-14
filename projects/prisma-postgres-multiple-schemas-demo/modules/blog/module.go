@@ -2,15 +2,15 @@ package blog
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/blog/contract"
 )
 
 // BlogModule provides blog management services via sqlc + Prisma Postgres.
@@ -81,70 +81,48 @@ func (m *BlogModule) Health(ctx context.Context) mono.HealthStatus {
 	}
 }
 
-// RegisterServices registers request-reply services in the service container.
-// The framework automatically prefixes service names with "services.<module>."
-// so "post.create" becomes "services.blog.post.create" in the NATS subject.
+// RegisterServices is the module's driving adapter: it binds each handler to
+// the module's own typed contract (see contract/contract.go), so service names,
+// subjects (services.blog.<service>) and JSON encoding are declared once.
 func (m *BlogModule) RegisterServices(container mono.ServiceContainer) error {
 	// Post services
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "post.create", json.Unmarshal, json.Marshal, m.handlePostCreate,
-	); err != nil {
-		return fmt.Errorf("register post.create: %w", err)
+	if err := contract.CreatePost.Register(container, m.handlePostCreate); err != nil {
+		return fmt.Errorf("register post-create: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "post.get", json.Unmarshal, json.Marshal, m.handlePostGet,
-	); err != nil {
-		return fmt.Errorf("register post.get: %w", err)
+	if err := contract.GetPost.Register(container, m.handlePostGet); err != nil {
+		return fmt.Errorf("register post-get: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "post.list", json.Unmarshal, json.Marshal, m.handlePostList,
-	); err != nil {
-		return fmt.Errorf("register post.list: %w", err)
+	if err := contract.ListPosts.Register(container, m.handlePostList); err != nil {
+		return fmt.Errorf("register post-list: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "post.update", json.Unmarshal, json.Marshal, m.handlePostUpdate,
-	); err != nil {
-		return fmt.Errorf("register post.update: %w", err)
+	if err := contract.UpdatePost.Register(container, m.handlePostUpdate); err != nil {
+		return fmt.Errorf("register post-update: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "post.delete", json.Unmarshal, json.Marshal, m.handlePostDelete,
-	); err != nil {
-		return fmt.Errorf("register post.delete: %w", err)
+	if err := contract.DeletePost.Register(container, m.handlePostDelete); err != nil {
+		return fmt.Errorf("register post-delete: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "post.publish", json.Unmarshal, json.Marshal, m.handlePostPublish,
-	); err != nil {
-		return fmt.Errorf("register post.publish: %w", err)
+	if err := contract.PublishPost.Register(container, m.handlePostPublish); err != nil {
+		return fmt.Errorf("register post-publish: %w", err)
 	}
 
 	// Comment services
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "comment.create", json.Unmarshal, json.Marshal, m.handleCommentCreate,
-	); err != nil {
-		return fmt.Errorf("register comment.create: %w", err)
+	if err := contract.CreateComment.Register(container, m.handleCommentCreate); err != nil {
+		return fmt.Errorf("register comment-create: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "comment.get", json.Unmarshal, json.Marshal, m.handleCommentGet,
-	); err != nil {
-		return fmt.Errorf("register comment.get: %w", err)
+	if err := contract.GetComment.Register(container, m.handleCommentGet); err != nil {
+		return fmt.Errorf("register comment-get: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "comment.list", json.Unmarshal, json.Marshal, m.handleCommentList,
-	); err != nil {
-		return fmt.Errorf("register comment.list: %w", err)
+	if err := contract.ListComments.Register(container, m.handleCommentList); err != nil {
+		return fmt.Errorf("register comment-list: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "comment.update", json.Unmarshal, json.Marshal, m.handleCommentUpdate,
-	); err != nil {
-		return fmt.Errorf("register comment.update: %w", err)
+	if err := contract.UpdateComment.Register(container, m.handleCommentUpdate); err != nil {
+		return fmt.Errorf("register comment-update: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "comment.delete", json.Unmarshal, json.Marshal, m.handleCommentDelete,
-	); err != nil {
-		return fmt.Errorf("register comment.delete: %w", err)
+	if err := contract.DeleteComment.Register(container, m.handleCommentDelete); err != nil {
+		return fmt.Errorf("register comment-delete: %w", err)
 	}
 
-	log.Printf("[blog] Registered services: services.blog.{post,comment}.{create,get,list,update,delete} + post.publish")
+	log.Printf("[blog] Registered services: services.blog.{post,comment}-{create,get,list,update,delete} + post-publish")
 	return nil
 }
 
@@ -202,48 +180,48 @@ func (m *BlogModule) Stop(_ context.Context) error {
 
 // Post handler methods
 
-func (m *BlogModule) handlePostCreate(ctx context.Context, req CreatePostRequest, _ *mono.Msg) (PostResponse, error) {
+func (m *BlogModule) handlePostCreate(ctx context.Context, req contract.CreatePostRequest, _ *mono.Msg) (contract.PostResponse, error) {
 	return m.postService.Create(ctx, req)
 }
 
-func (m *BlogModule) handlePostGet(ctx context.Context, req GetPostRequest, _ *mono.Msg) (PostResponse, error) {
+func (m *BlogModule) handlePostGet(ctx context.Context, req contract.GetPostRequest, _ *mono.Msg) (contract.PostResponse, error) {
 	return m.postService.Get(ctx, req)
 }
 
-func (m *BlogModule) handlePostList(ctx context.Context, req ListPostsRequest, _ *mono.Msg) (ListPostsResponse, error) {
+func (m *BlogModule) handlePostList(ctx context.Context, req contract.ListPostsRequest, _ *mono.Msg) (contract.ListPostsResponse, error) {
 	return m.postService.List(ctx, req)
 }
 
-func (m *BlogModule) handlePostUpdate(ctx context.Context, req UpdatePostRequest, _ *mono.Msg) (PostResponse, error) {
+func (m *BlogModule) handlePostUpdate(ctx context.Context, req contract.UpdatePostRequest, _ *mono.Msg) (contract.PostResponse, error) {
 	return m.postService.Update(ctx, req)
 }
 
-func (m *BlogModule) handlePostDelete(ctx context.Context, req DeletePostRequest, _ *mono.Msg) (DeletePostResponse, error) {
+func (m *BlogModule) handlePostDelete(ctx context.Context, req contract.DeletePostRequest, _ *mono.Msg) (contract.DeletePostResponse, error) {
 	return m.postService.Delete(ctx, req)
 }
 
-func (m *BlogModule) handlePostPublish(ctx context.Context, req PublishPostRequest, _ *mono.Msg) (PostResponse, error) {
+func (m *BlogModule) handlePostPublish(ctx context.Context, req contract.PublishPostRequest, _ *mono.Msg) (contract.PostResponse, error) {
 	return m.postService.Publish(ctx, req)
 }
 
 // Comment handler methods
 
-func (m *BlogModule) handleCommentCreate(ctx context.Context, req CreateCommentRequest, _ *mono.Msg) (CommentResponse, error) {
+func (m *BlogModule) handleCommentCreate(ctx context.Context, req contract.CreateCommentRequest, _ *mono.Msg) (contract.CommentResponse, error) {
 	return m.commentService.Create(ctx, req)
 }
 
-func (m *BlogModule) handleCommentGet(ctx context.Context, req GetCommentRequest, _ *mono.Msg) (CommentResponse, error) {
+func (m *BlogModule) handleCommentGet(ctx context.Context, req contract.GetCommentRequest, _ *mono.Msg) (contract.CommentResponse, error) {
 	return m.commentService.Get(ctx, req)
 }
 
-func (m *BlogModule) handleCommentList(ctx context.Context, req ListCommentsRequest, _ *mono.Msg) (ListCommentsResponse, error) {
+func (m *BlogModule) handleCommentList(ctx context.Context, req contract.ListCommentsRequest, _ *mono.Msg) (contract.ListCommentsResponse, error) {
 	return m.commentService.List(ctx, req)
 }
 
-func (m *BlogModule) handleCommentUpdate(ctx context.Context, req UpdateCommentRequest, _ *mono.Msg) (CommentResponse, error) {
+func (m *BlogModule) handleCommentUpdate(ctx context.Context, req contract.UpdateCommentRequest, _ *mono.Msg) (contract.CommentResponse, error) {
 	return m.commentService.Update(ctx, req)
 }
 
-func (m *BlogModule) handleCommentDelete(ctx context.Context, req DeleteCommentRequest, _ *mono.Msg) (DeleteCommentResponse, error) {
+func (m *BlogModule) handleCommentDelete(ctx context.Context, req contract.DeleteCommentRequest, _ *mono.Msg) (contract.DeleteCommentResponse, error) {
 	return m.commentService.Delete(ctx, req)
 }

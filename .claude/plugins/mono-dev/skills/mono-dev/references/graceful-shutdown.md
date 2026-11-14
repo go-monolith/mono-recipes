@@ -294,4 +294,4 @@ if err := app.Stop(shutdownCtx); err != nil {
 |---------|---------|
 | `url-shortener-demo` | Manual signal handling |
 | `node-nats-client-demo` | gelmium/graceful-shutdown |
-| `background-jobs-demo` | Worker with WaitGroup |
+| `graceful-shutdown-demo` | Draining in-flight Fiber requests (`ShutdownWithContext`) and interrupting a worker within the stop deadline |

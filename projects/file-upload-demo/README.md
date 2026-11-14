@@ -1,6 +1,6 @@
 # File Upload Demo
 
-A demonstration of file upload/download functionality using the Mono framework with the built-in `fs-jetstream` plugin and Gin HTTP framework.
+A demonstration of file upload/download functionality using the Mono framework (mono v0.1.1) with the built-in `fs-jetstream` plugin and Gin HTTP framework.
 
 ## Overview
 
@@ -11,6 +11,7 @@ This recipe demonstrates:
 - **Gin HTTP Framework**: Building REST APIs with the Gin web framework
 - **Embedded JetStream**: No external NATS server required - uses Mono's embedded NATS with JetStream
 - **File Operations**: Upload, download, list, and delete files via REST API
+- **Module Boundaries**: One self-contained module (no cross-module struct references), running with strict module boundaries
 
 ## Why Use fs-jetstream for File Storage?
 
@@ -58,8 +59,8 @@ func (m *Module) SetPlugin(alias string, plugin mono.PluginModule) {
 
 func (m *Module) Start(ctx context.Context) error {
     // Access the bucket in Start() after plugin is injected
-    m.bucket = m.storage.Bucket("files")
-    return nil
+    m.service = NewService(m.storage.Bucket("files"))
+    return m.startHTTPServer()
 }
 ```
 
@@ -78,14 +79,14 @@ The framework lifecycle:
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Gin HTTP Server (httpserver module)          │
+│                 file-service module (fileservice)               │
+│                                                                 │
+│  Gin HTTP server (http.go, handlers.go)   driving adapter       │
 │  Routes: /api/v1/files, /health                                 │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    File Service (fileservice module)            │
-│              Implements UsePluginModule                         │
+│                                │ in-process call                │
+│                                ▼                                │
+│  File Service (service.go)                domain + storage      │
+│  Implements UsePluginModule                                     │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -99,22 +100,58 @@ The framework lifecycle:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Module Boundaries
+
+Earlier versions of this recipe had a separate `http-server` module that was
+handed the file service module directly in `main.go`
+(`httpServerModule.SetFileModule(fileServiceModule)`), a struct reference that
+bypasses every boundary check of the framework. The usual fix, a typed
+request-reply contract in a `fileservice/contract` package, does not fit here:
+uploads and downloads are binary payloads of up to `MAX_UPLOAD_SIZE` (100MB by
+default), and a NATS request-reply message carries the whole body in memory
+and is limited by the NATS max payload.
+
+So the Gin HTTP server is the file-service module's own **driving adapter**:
+`http.go` starts and stops it in the module's `Start`/`Stop`, and
+`handlers.go` calls the domain `Service` in-process. The HTTP API (routes,
+port, responses) is unchanged. The module exposes no services or events to
+other modules, so it has no `contract` package and no `ConsumeServices()`. If
+another module ever needs file metadata, give it a `fileservice/contract` with
+request-reply contracts for the metadata operations (list, info, delete) and
+keep the binary transfer on HTTP.
+
+`main.go` runs with `mono.WithStrictModuleBoundaries()`.
+
+### Conformance test
+
+```bash
+go test ./...
+```
+
+`modules/fileservice/module_test.go` is a real-application test (the
+fs-jetstream plugin needs JetStream, which `monotest` does not emulate): it
+starts the app in strict mode with an in-memory bucket, drives every HTTP
+endpoint, and asserts `app.ModuleBoundaries()` reports no violations.
+
 ## Project Structure
 
 ```
 file-upload-demo/
-├── main.go                    # Application entry point
+├── main.go                    # Application entry point (strict module boundaries)
 ├── go.mod                     # Go module definition
 ├── demo.sh                    # Interactive demo script
 ├── README.md                  # This file
 └── modules/
-    ├── fileservice/
-    │   ├── module.go          # File service mono module (UsePluginModule)
-    │   ├── service.go         # File storage service implementation
-    │   └── types.go           # Data types and DTOs
-    └── httpserver/
-        ├── module.go          # Gin HTTP server module
-        └── handlers.go        # HTTP request handlers
+    └── fileservice/
+        ├── module.go          # File service mono module (UsePluginModule, lifecycle)
+        ├── service.go         # File storage service implementation
+        ├── http.go            # Gin HTTP server: routes, middleware, start/stop
+        ├── handlers.go        # HTTP request handlers (driving adapter)
+        ├── types.go           # Data types and DTOs
+        ├── errors.go          # Sentinel errors
+        ├── handlers_test.go   # Content type detection tests
+        ├── service_test.go    # DTO tests
+        └── module_test.go     # Real-app boundary test (JetStream)
 ```
 
 ## API Endpoints
@@ -165,7 +202,7 @@ List response:
 
 ## Prerequisites
 
-- Go 1.21 or later
+- Go 1.25 or later
 - curl (for testing)
 
 No external services required! The demo uses Mono's embedded NATS with JetStream.
@@ -268,7 +305,8 @@ defer reader.Close()
 
 - **Plugin System**: Using `fs-jetstream` plugin for file storage
 - **UsePluginModule**: Receiving plugin instance via dependency injection
-- **Module Lifecycle**: Proper Start/Stop for resource management
+- **Module Lifecycle**: Proper Start/Stop for resource management (HTTP server and storage in one module)
+- **Strict Module Boundaries**: `mono.WithStrictModuleBoundaries()` with a real-app boundary test
 - **Embedded NATS**: No external infrastructure needed
 - **Graceful Shutdown**: Clean shutdown with resource cleanup
 

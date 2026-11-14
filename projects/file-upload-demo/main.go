@@ -8,7 +8,6 @@ import (
 	"time"
 
 	fileservicemod "github.com/example/file-upload-demo/modules/fileservice"
-	httpservermod "github.com/example/file-upload-demo/modules/httpserver"
 	gfshutdown "github.com/gelmium/graceful-shutdown"
 	"github.com/go-monolith/mono"
 	fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
@@ -33,6 +32,8 @@ func main() {
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
 		mono.WithJetStreamStorageDir(storagePath),
+		// Module boundary violations fail instead of only being reported at Stop.
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create mono application: %v", err)
@@ -62,17 +63,17 @@ func main() {
 		log.Fatalf("Failed to register storage plugin: %v", err)
 	}
 
-	// Create modules
-	fileServiceModule := fileservicemod.NewModule(app.Logger())
-	httpServerModule := httpservermod.NewModule(httpPort, maxUploadSize, app.Logger())
+	// Create the file service module. It owns both the storage service and the
+	// Gin HTTP API that drives it: uploads and downloads are binary payloads
+	// handed to the storage service in-process, so there is no second module
+	// to wire up with a direct reference.
+	fileServiceModule := fileservicemod.NewModule(httpPort, maxUploadSize, app.Logger())
 
-	// Wire up dependencies
-	httpServerModule.SetFileModule(fileServiceModule)
-
-	// Register modules
-	// File service module implements UsePluginModule and will receive the storage plugin
-	app.Register(fileServiceModule)
-	app.Register(httpServerModule)
+	// Register the module. It implements UsePluginModule and will receive the
+	// storage plugin before Start.
+	if err := app.Register(fileServiceModule); err != nil {
+		log.Fatalf("Failed to register module: %v", err)
+	}
 
 	// Start the application
 	ctx := context.Background()

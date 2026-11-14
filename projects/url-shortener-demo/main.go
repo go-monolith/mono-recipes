@@ -28,6 +28,10 @@ func main() {
 		mono.WithLogFormat(mono.LogFormatText),
 		mono.WithShutdownTimeout(10*time.Second),
 		mono.WithJetStreamStorageDir(jsDir),
+		// Module boundary violations (a module calling a service of a module it
+		// did not declare as a dependency, registering on a dependency's
+		// container, ...) fail instead of only being reported at Stop.
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
@@ -78,11 +82,14 @@ func main() {
 	// 1. Plugin injection (kv plugin -> shortener via SetPlugin)
 	// 2. Event bus wiring (shortener emits events, analytics consumes)
 	// 3. Dependency resolution (httpserver depends on shortener & analytics)
-	// 4. Service container injection (via SetDependencyServiceContainer)
+	// 4. Service container injection (via SetDependencyServiceContainer, as
+	//    read-only views; ConsumeServices() is validated against them)
 	// 5. Lifecycle management (Start/Stop in correct dependency order)
-	app.Register(shortenerModule)
-	app.Register(analyticsModule)
-	app.Register(httpServerModule)
+	for _, m := range []mono.Module{shortenerModule, analyticsModule, httpServerModule} {
+		if err := app.Register(m); err != nil {
+			log.Fatalf("Failed to register module %s: %v", m.Name(), err)
+		}
+	}
 
 	// Start the application
 	ctx := context.Background()

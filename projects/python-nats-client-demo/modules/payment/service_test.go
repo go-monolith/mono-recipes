@@ -3,6 +3,8 @@ package payment
 import (
 	"context"
 	"testing"
+
+	"github.com/example/python-nats-client-demo/modules/payment/contract"
 )
 
 func TestPaymentStore(t *testing.T) {
@@ -11,7 +13,7 @@ func TestPaymentStore(t *testing.T) {
 
 		result := &PaymentResult{
 			PaymentID: "pay-001",
-			Status:    PaymentStatusCompleted,
+			Status:    contract.PaymentStatusCompleted,
 			Message:   "Success",
 		}
 
@@ -51,20 +53,20 @@ func TestPaymentStore(t *testing.T) {
 		// Initial state
 		store.set(&PaymentResult{
 			PaymentID: "pay-002",
-			Status:    PaymentStatusProcessing,
+			Status:    contract.PaymentStatusProcessing,
 			Message:   "Processing",
 		})
 
 		// Update to completed
 		store.set(&PaymentResult{
 			PaymentID: "pay-002",
-			Status:    PaymentStatusCompleted,
+			Status:    contract.PaymentStatusCompleted,
 			Message:   "Done",
 		})
 
 		got := store.get("pay-002")
-		if got.Status != PaymentStatusCompleted {
-			t.Errorf("Status = %v, want %v", got.Status, PaymentStatusCompleted)
+		if got.Status != contract.PaymentStatusCompleted {
+			t.Errorf("Status = %v, want %v", got.Status, contract.PaymentStatusCompleted)
 		}
 		if got.Message != "Done" {
 			t.Errorf("Message = %v, want %v", got.Message, "Done")
@@ -77,14 +79,14 @@ func TestGetStatus(t *testing.T) {
 		name        string
 		setupStore  func(*paymentStore)
 		paymentID   string
-		wantStatus  PaymentStatus
+		wantStatus  contract.PaymentStatus
 		wantMessage string
 	}{
 		{
 			name:        "payment not found",
 			setupStore:  func(s *paymentStore) {},
 			paymentID:   "unknown",
-			wantStatus:  PaymentStatusPending,
+			wantStatus:  contract.PaymentStatusPending,
 			wantMessage: "Payment not found or not yet processed",
 		},
 		{
@@ -92,12 +94,12 @@ func TestGetStatus(t *testing.T) {
 			setupStore: func(s *paymentStore) {
 				s.set(&PaymentResult{
 					PaymentID: "pay-001",
-					Status:    PaymentStatusCompleted,
+					Status:    contract.PaymentStatusCompleted,
 					Message:   "Payment processed successfully",
 				})
 			},
 			paymentID:   "pay-001",
-			wantStatus:  PaymentStatusCompleted,
+			wantStatus:  contract.PaymentStatusCompleted,
 			wantMessage: "Payment processed successfully",
 		},
 		{
@@ -105,12 +107,12 @@ func TestGetStatus(t *testing.T) {
 			setupStore: func(s *paymentStore) {
 				s.set(&PaymentResult{
 					PaymentID: "pay-002",
-					Status:    PaymentStatusProcessing,
+					Status:    contract.PaymentStatusProcessing,
 					Message:   "",
 				})
 			},
 			paymentID:   "pay-002",
-			wantStatus:  PaymentStatusProcessing,
+			wantStatus:  contract.PaymentStatusProcessing,
 			wantMessage: "",
 		},
 		{
@@ -118,12 +120,12 @@ func TestGetStatus(t *testing.T) {
 			setupStore: func(s *paymentStore) {
 				s.set(&PaymentResult{
 					PaymentID: "pay-003",
-					Status:    PaymentStatusFailed,
+					Status:    contract.PaymentStatusFailed,
 					Message:   "Insufficient funds",
 				})
 			},
 			paymentID:   "pay-003",
-			wantStatus:  PaymentStatusFailed,
+			wantStatus:  contract.PaymentStatusFailed,
 			wantMessage: "Insufficient funds",
 		},
 	}
@@ -135,7 +137,7 @@ func TestGetStatus(t *testing.T) {
 
 			m := &PaymentModule{store: store}
 
-			resp, err := m.getStatus(context.Background(), StatusRequest{PaymentID: tt.paymentID}, nil)
+			resp, err := m.getStatus(context.Background(), contract.StatusRequest{PaymentID: tt.paymentID}, nil)
 
 			if err != nil {
 				t.Fatalf("getStatus() returned error: %v", err)
@@ -158,11 +160,11 @@ func TestGetStatus(t *testing.T) {
 
 func TestPaymentStatusConstants(t *testing.T) {
 	// Verify status constants match expected values
-	statuses := map[PaymentStatus]string{
-		PaymentStatusPending:    "pending",
-		PaymentStatusProcessing: "processing",
-		PaymentStatusCompleted:  "completed",
-		PaymentStatusFailed:     "failed",
+	statuses := map[contract.PaymentStatus]string{
+		contract.PaymentStatusPending:    "pending",
+		contract.PaymentStatusProcessing: "processing",
+		contract.PaymentStatusCompleted:  "completed",
+		contract.PaymentStatusFailed:     "failed",
 	}
 
 	for status, expected := range statuses {

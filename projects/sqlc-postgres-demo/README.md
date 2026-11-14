@@ -1,6 +1,6 @@
 # sqlc + PostgreSQL Recipe
 
-A demonstration project showcasing how to integrate **sqlc** (type-safe SQL code generation) with PostgreSQL in a modular monolith application using the [go-monolith/mono](https://github.com/go-monolith/mono) framework.
+A demonstration project showcasing how to integrate **sqlc** (type-safe SQL code generation) with PostgreSQL in a modular monolith application using the [go-monolith/mono](https://github.com/go-monolith/mono) framework (v0.1.1).
 
 This recipe demonstrates the **ServiceProviderModule** pattern for exposing CRUD services via the mono framework's request-reply mechanism, without any HTTP endpoints.
 
@@ -86,21 +86,37 @@ The mono framework uses NATS as its message bus. The `ServiceProviderModule` int
                                            └─────────────────┘
 ```
 
-### Service Registration
+### Service Contracts and Registration
 
-The `UserModule` implements `ServiceProviderModule` and registers these services:
+Each service is declared once, as a typed contract in `modules/user/contract`:
+
+```go
+// modules/user/contract/contract.go
+var (
+    CreateUser = helper.RequestReplyService[CreateUserRequest, UserResponse]("user", "create")
+    GetUser    = helper.RequestReplyService[GetUserRequest, UserResponse]("user", "get")
+    ListUsers  = helper.RequestReplyService[ListUsersRequest, ListUsersResponse]("user", "list")
+    UpdateUser = helper.RequestReplyService[UpdateUserRequest, UserResponse]("user", "update")
+    DeleteUser = helper.RequestReplyService[DeleteUserRequest, DeleteUserResponse]("user", "delete")
+)
+```
+
+The `UserModule` implements `ServiceProviderModule` and registers its handlers
+through those contracts:
 
 ```go
 func (m *UserModule) RegisterServices(container mono.ServiceContainer) error {
-    helper.RegisterTypedRequestReplyService(container, "create", ...)
-    helper.RegisterTypedRequestReplyService(container, "get", ...)
-    helper.RegisterTypedRequestReplyService(container, "list", ...)
-    helper.RegisterTypedRequestReplyService(container, "update", ...)
-    helper.RegisterTypedRequestReplyService(container, "delete", ...)
+    if err := contract.CreateUser.Register(container, m.handleCreate); err != nil {
+        return err
+    }
+    // ... GetUser, ListUsers, UpdateUser, DeleteUser
+    return nil
 }
 ```
 
-The framework automatically prefixes with `services.<module>.`, so `create` becomes `services.user.create`.
+The subject is `services.<module>.<service>`, so `create` becomes
+`services.user.create`. Callers use the same contract value:
+`contract.CreateUser.Call(ctx, container, contract.CreateUserRequest{...})`.
 
 ## Project Structure
 
@@ -109,21 +125,24 @@ sqlc-postgres-demo/
 ├── main.go                         # Application entry point
 ├── go.mod                          # Go module definition
 ├── docker-compose.yml              # PostgreSQL container
-├── sqlc.yaml                       # sqlc configuration
-├── db/
-│   ├── schema.sql                  # Database schema
-│   ├── query.sql                   # SQL queries with annotations
-│   └── generated/                  # sqlc generated code
-│       ├── db.go
-│       ├── models.go
-│       └── query.sql.go
 ├── modules/
 │   └── user/
+│       ├── contract/
+│       │   └── contract.go         # Published port: DTOs + typed service contracts
+│       ├── db/
+│       │   ├── sqlc.yaml           # sqlc configuration
+│       │   ├── schema.sql          # Database schema
+│       │   ├── query.sql           # SQL queries with annotations
+│       │   └── generated/          # sqlc generated code (private to the module)
+│       │       ├── db.go
+│       │       ├── models.go
+│       │       └── query.sql.go
 │       ├── module.go               # ServiceProviderModule
+│       ├── module_test.go          # monotest.CheckModule conformance tests
 │       ├── repository.go           # Wraps sqlc queries
-│       ├── repository_test.go      # Unit tests
-│       ├── service.go              # Service handlers
-│       └── types.go                # Request/response types
+│       ├── repository_test.go      # Repository tests (need PostgreSQL)
+│       ├── service.go              # Business logic, maps sqlc rows to contract DTOs
+│       └── service_test.go         # Service tests with a mock repository
 ├── demo.sh                         # NATS CLI demo script
 └── README.md
 ```
@@ -142,7 +161,7 @@ sqlc-postgres-demo/
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.25 or later
 - Docker and Docker Compose
 - sqlc CLI (for code generation)
 - NATS CLI (`nats` command) for the demo script
@@ -170,10 +189,10 @@ docker compose up -d
 
 ### Generate sqlc Code
 
-Only needed if you modify `db/query.sql` or `db/schema.sql`:
+Only needed if you modify `modules/user/db/query.sql` or `modules/user/db/schema.sql`:
 
 ```bash
-sqlc generate
+cd modules/user/db && sqlc generate
 ```
 
 ### Build
@@ -277,22 +296,49 @@ docker compose up -d
 go test ./...
 ```
 
-Tests skip gracefully if the database is unavailable.
+Tests that need PostgreSQL (`repository_test.go`, `TestUserModuleConformancePostgres`)
+skip gracefully if the database at `TEST_DATABASE_URL` (default: the
+docker-compose database) is unavailable. The other tests, including the
+`monotest.CheckModule` conformance test with an in-memory service, always run.
+
+## Module Boundaries
+
+The user module follows mono's Ports and Adapters rules:
+
+- `modules/user/contract` is the module's published port: request/response
+  DTOs and the typed contracts (`helper.RequestReplyService`). It imports only
+  the standard library and `mono/pkg/helper`, never the module package or the
+  sqlc-generated `db/generated` package; `service.go` maps `generated.User`
+  rows to the contract DTOs. It is the only package of the module other
+  modules may import.
+- `RegisterServices` registers every handler through its contract, so no
+  service name is written as a string in module code. Service names and
+  subjects (`services.user.<service>`) are unchanged.
+- `main.go` runs with `mono.WithStrictModuleBoundaries()`, which rejects
+  boundary violations instead of only reporting them when the app stops.
+- `modules/user/module_test.go` runs `monotest.CheckModule` and calls every
+  contract, once with an in-memory `UserService` injected through
+  `user.NewModuleWithService` (no database needed) and once against
+  PostgreSQL when it is reachable:
+
+```bash
+go test ./modules/user/ -run Conformance -v
+```
 
 ## sqlc Configuration
 
-The `sqlc.yaml` configures code generation:
+The `modules/user/db/sqlc.yaml` configures code generation:
 
 ```yaml
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "db/query.sql"
-    schema: "db/schema.sql"
+    queries: "query.sql"
+    schema: "schema.sql"
     gen:
       go:
         package: "generated"
-        out: "db/generated"
+        out: "generated"
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_empty_slices: true

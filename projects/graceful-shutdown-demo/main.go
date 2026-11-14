@@ -17,18 +17,29 @@ const shutdownTimeout = 30 * time.Second
 func main() {
 	log.Println("Starting graceful-shutdown-demo application...")
 
-	// Create mono application with configuration
+	// Create mono application with configuration. The modules provide and
+	// consume no services, so strict module boundaries cost nothing and guard
+	// against a module reaching into another later.
 	app, err := mono.NewMonoApplication(
 		mono.WithShutdownTimeout(shutdownTimeout),
 		mono.WithLogLevel(mono.LogLevelInfo),
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create mono application: %v", err)
 	}
 
-	// Register modules
-	app.Register(&httpserver.HttpServerModule{})
-	app.Register(&worker.WorkerModule{})
+	// Register modules. Each Stop is bounded by the shutdown timeout: the HTTP
+	// server drains in-flight requests, the worker interrupts its current task.
+	modules := []mono.Module{
+		httpserver.NewModule(httpserver.Config{Addr: ":3000"}),
+		worker.NewModule(worker.Config{}),
+	}
+	for _, m := range modules {
+		if err := app.Register(m); err != nil {
+			log.Fatalf("Failed to register %s module: %v", m.Name(), err)
+		}
+	}
 
 	// Start all modules
 	if err := app.Start(context.Background()); err != nil {

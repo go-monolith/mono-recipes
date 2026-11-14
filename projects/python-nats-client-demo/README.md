@@ -1,6 +1,6 @@
 # Python NATS Client Demo
 
-A complete example showing how to build polyglot microservices using Python clients with Go-based Mono applications via NATS messaging.
+A complete example showing how to build polyglot microservices using Python clients with Go-based Mono applications (mono **v0.1.1**) via NATS messaging.
 
 ## Why Python NATS Client for Polyglot Microservices?
 
@@ -92,26 +92,31 @@ await js.publish("services.payment.payment-process",
 
 ```
 python-nats-client-demo/
-├── main.go                    # Go application entry point
+├── main.go                    # Go application entry point (embedded NATS, strict boundaries)
 ├── go.mod                     # Go module definition
 ├── modules/
 │   ├── math/                  # RequestReplyService
-│   │   ├── types.go          # Request/response types
+│   │   ├── contract/         # Published port: DTOs + Calculate contract
 │   │   ├── service.go        # Calculator operations
-│   │   └── module.go         # Service registration
+│   │   ├── module.go         # RegisterServices via the contract
+│   │   └── module_test.go    # monotest.CheckModule conformance test
 │   ├── notification/          # QueueGroupService
-│   │   ├── types.go          # Email request type
+│   │   ├── contract/         # Published port: SendEmail contract
 │   │   ├── service.go        # Email processing
-│   │   └── module.go         # Service registration
-│   └── payment/               # StreamConsumerService
-│       ├── types.go          # Payment types
+│   │   ├── module.go         # RegisterServices via the contract
+│   │   └── module_test.go    # monotest.CheckModule conformance test
+│   └── payment/               # StreamConsumerService + RequestReplyService
+│       ├── contract/         # Published port: ProcessPayment + Status contracts
+│       ├── types.go          # Internal payment result type
 │       ├── service.go        # Payment processing
-│       └── module.go         # Service registration
+│       ├── module.go         # RegisterServices via the contracts
+│       └── module_test.go    # Real-app test (JetStream) with boundary report
 ├── client/                    # Python client library
 │   ├── __init__.py
 │   ├── math_client.py        # RequestReply client
 │   ├── email_client.py       # QueueGroup client
 │   └── payment_client.py     # JetStream client
+├── tests/                     # Python client unit tests (pytest, mocked NATS)
 ├── demo.py                    # Interactive demo script
 ├── requirements.txt           # Python dependencies
 └── README.md
@@ -119,34 +124,33 @@ python-nats-client-demo/
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.25+
 - Python 3.10+
-- Docker and Docker Compose (for NATS)
+
+No separate NATS server is needed: the Go application embeds NATS with JetStream (storage in `/tmp/python-nats-client-demo`).
 
 ## Quick Start
 
-### 1. Start NATS with JetStream
-
-```bash
-docker run -d --name nats -p 4222:4222 nats:latest -js
-```
-
-### 2. Start the Go Server
+### 1. Start the Go Server
 
 ```bash
 cd projects/python-nats-client-demo
-go run .
+go build -o bin/python-nats-client-demo . && ./bin/python-nats-client-demo
+# or: go run .
 ```
+
+NATS listens on `nats://localhost:4222`; set `NATS_PORT` to use another port (and pass `--nats-url nats://localhost:<port>` to `demo.py`).
 
 You should see:
 ```
 [math] Registered services: services.math.calculate
-[notification] Registered services: services.notification.email-send
-[payment] Registered services: services.payment.payment-process, services.payment.status
-Starting Mono application...
+[notification] Registered QueueGroupService: services.notification.email-send (queue: email-workers)
+[payment] Registered StreamConsumerService: services.payment.payment-process (stream: payment-requests)
+[payment] Registered RequestReplyService: services.payment.status
+Application started successfully!
 ```
 
-### 3. Run the Python Demo
+### 2. Run the Python Demo
 
 In a new terminal:
 
@@ -199,7 +203,7 @@ asyncio.run(main())
 
 ### Why Mono + Python NATS?
 
-1. **Type Safety in Go** - The Go services use typed handlers with JSON marshaling
+1. **Type Safety in Go** - The Go services are registered through typed contracts (JSON on the wire)
 2. **Flexibility in Python** - Python scripts can interact without code generation
 3. **Shared Nothing** - Services communicate only via messages
 4. **Independent Scaling** - Add more Go workers or Python clients as needed
@@ -213,6 +217,32 @@ asyncio.run(main())
 | gRPC | Type-safe, efficient | Code generation, complexity |
 | NATS | Simple, polyglot, patterns | Less tooling, different paradigm |
 
+## Request Deadlines
+
+Since mono v0.0.17, request-reply calls made from Go carry the caller's deadline in two headers, `Mono-Deadline` (absolute, Unix milliseconds) and `Mono-Timeout` (remaining, milliseconds). The Go server drops a request whose deadline already passed while it waited, and the handler context ends at that deadline. The Python clients send plain `nc.request(...)` without these headers, so their requests are never expired server-side; only the client `timeout` applies. A Python client can opt in by sending the headers itself:
+
+```python
+import time
+timeout = 5.0
+headers = {
+    "Mono-Deadline": str(int((time.time() + timeout) * 1000)),
+    "Mono-Timeout": str(int(timeout * 1000)),
+}
+response = await nc.request("services.math.calculate", payload, timeout=timeout, headers=headers)
+```
+
+Request-reply handlers run concurrently on a worker pool (v0.0.15+), so `math.calculate` and `payment.status` serve parallel Python requests; the payment store is guarded by a mutex.
+
+## Module Boundaries
+
+The Go side follows the module boundaries path of mono v0.1.x:
+
+- **Contract packages**: each module has `modules/<module>/contract` with its DTOs and typed contracts (`helper.RequestReplyService`, `helper.QueueGroupService`, `helper.StreamConsumerService`). The contracts fix the subjects the Python clients use, so they are declared once and never written as strings in module code. The payment stream's subject is taken from `contract.ProcessPayment.Subject()`.
+- **No cross-module calls**: the three modules are independent providers called only from Python, so none implements `ConsumeServices()`.
+- **Malformed stream messages**: the typed stream consumer fails a whole batch when one message does not decode. The payment module registers `ProcessPayment` with a lenient decoder so a malformed message is terminated instead of holding up valid payments.
+- **Strict mode**: `main.go` runs with `mono.WithStrictModuleBoundaries()`.
+- **Conformance tests**: `monotest.CheckModule` for `math` and `notification`; `payment` uses JetStream, which `monotest` does not emulate, so `modules/payment/module_test.go` runs it in a real application (temp JetStream dir, default mode so violations are recorded) and asserts that `app.ModuleBoundaries()` reports no violations.
+
 ## Testing
 
 ### Run Go Tests
@@ -224,6 +254,7 @@ go test ./...
 ### Run Python Tests
 
 ```bash
+pip install -r requirements.txt
 pytest tests/ -v
 ```
 

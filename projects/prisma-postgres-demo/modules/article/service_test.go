@@ -10,6 +10,8 @@ import (
 	"github.com/example/prisma-postgres-demo/modules/article/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/example/prisma-postgres-demo/modules/article/contract"
 )
 
 // mockRepository is a test double implementing ArticleRepository.
@@ -236,7 +238,7 @@ func TestArticleService_Create(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		resp, err := svc.Create(context.Background(), CreateArticleRequest{
+		resp, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:     "Test Article",
 			Content:   "Test content here",
 			Slug:      "test-article",
@@ -264,7 +266,7 @@ func TestArticleService_Create(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Create(context.Background(), CreateArticleRequest{
+		_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Content: "Test content",
 			Slug:    "test-slug",
 		})
@@ -277,7 +279,7 @@ func TestArticleService_Create(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Create(context.Background(), CreateArticleRequest{
+		_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title: "Test Article",
 			Slug:  "test-slug",
 		})
@@ -290,7 +292,7 @@ func TestArticleService_Create(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Create(context.Background(), CreateArticleRequest{
+		_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Test Article",
 			Content: "Test content",
 		})
@@ -304,7 +306,7 @@ func TestArticleService_Create(t *testing.T) {
 		svc := NewArticleService(repo)
 
 		// Create first article
-		_, err := svc.Create(context.Background(), CreateArticleRequest{
+		_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "First Article",
 			Content: "Content",
 			Slug:    "same-slug",
@@ -314,7 +316,7 @@ func TestArticleService_Create(t *testing.T) {
 		}
 
 		// Try to create another with same slug
-		_, err = svc.Create(context.Background(), CreateArticleRequest{
+		_, err = svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Second Article",
 			Content: "Content",
 			Slug:    "same-slug",
@@ -330,7 +332,7 @@ func TestArticleService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Test Article",
 			Content: "Test content",
 			Slug:    "test-article",
@@ -339,7 +341,7 @@ func TestArticleService_Get(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		resp, err := svc.Get(context.Background(), GetArticleRequest{ID: created.ID})
+		resp, err := svc.Get(context.Background(), contract.GetArticleRequest{ID: created.ID})
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -353,7 +355,7 @@ func TestArticleService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Test Article",
 			Content: "Test content",
 			Slug:    "test-article",
@@ -362,7 +364,7 @@ func TestArticleService_Get(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		resp, err := svc.Get(context.Background(), GetArticleRequest{Slug: "test-article"})
+		resp, err := svc.Get(context.Background(), contract.GetArticleRequest{Slug: "test-article"})
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -376,7 +378,7 @@ func TestArticleService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Get(context.Background(), GetArticleRequest{})
+		_, err := svc.Get(context.Background(), contract.GetArticleRequest{})
 		if err != ErrIDOrSlugRequired {
 			t.Errorf("expected ErrIDOrSlugRequired, got %v", err)
 		}
@@ -386,7 +388,7 @@ func TestArticleService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Get(context.Background(), GetArticleRequest{ID: "not-a-uuid"})
+		_, err := svc.Get(context.Background(), contract.GetArticleRequest{ID: "not-a-uuid"})
 		if err != ErrIDInvalid {
 			t.Errorf("expected ErrIDInvalid, got %v", err)
 		}
@@ -396,7 +398,7 @@ func TestArticleService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Get(context.Background(), GetArticleRequest{
+		_, err := svc.Get(context.Background(), contract.GetArticleRequest{
 			ID: uuid.New().String(),
 		})
 		if err != ErrNotFound {
@@ -408,7 +410,7 @@ func TestArticleService_Get(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Get(context.Background(), GetArticleRequest{
+		_, err := svc.Get(context.Background(), contract.GetArticleRequest{
 			Slug: "non-existent-slug",
 		})
 		if err != ErrNotFound {
@@ -424,7 +426,7 @@ func TestArticleService_List(t *testing.T) {
 
 		// Create multiple articles
 		for i := range 5 {
-			_, err := svc.Create(context.Background(), CreateArticleRequest{
+			_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 				Title:   "Test Article",
 				Content: "Content",
 				Slug:    fmt.Sprintf("test-article-%d", i),
@@ -434,7 +436,7 @@ func TestArticleService_List(t *testing.T) {
 			}
 		}
 
-		resp, err := svc.List(context.Background(), ListArticlesRequest{
+		resp, err := svc.List(context.Background(), contract.ListArticlesRequest{
 			Limit:  2,
 			Offset: 0,
 		})
@@ -459,7 +461,7 @@ func TestArticleService_List(t *testing.T) {
 
 		// Create published and draft articles
 		for i := range 3 {
-			_, err := svc.Create(context.Background(), CreateArticleRequest{
+			_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 				Title:     "Published Article",
 				Content:   "Content",
 				Slug:      fmt.Sprintf("published-%d", i),
@@ -470,7 +472,7 @@ func TestArticleService_List(t *testing.T) {
 			}
 		}
 		for i := range 2 {
-			_, err := svc.Create(context.Background(), CreateArticleRequest{
+			_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 				Title:     "Draft Article",
 				Content:   "Content",
 				Slug:      fmt.Sprintf("draft-%d", i),
@@ -482,7 +484,7 @@ func TestArticleService_List(t *testing.T) {
 		}
 
 		published := true
-		resp, err := svc.List(context.Background(), ListArticlesRequest{
+		resp, err := svc.List(context.Background(), contract.ListArticlesRequest{
 			Published: &published,
 		})
 		if err != nil {
@@ -494,7 +496,7 @@ func TestArticleService_List(t *testing.T) {
 		}
 
 		draft := false
-		resp, err = svc.List(context.Background(), ListArticlesRequest{
+		resp, err = svc.List(context.Background(), contract.ListArticlesRequest{
 			Published: &draft,
 		})
 		if err != nil {
@@ -510,7 +512,7 @@ func TestArticleService_List(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		resp, err := svc.List(context.Background(), ListArticlesRequest{})
+		resp, err := svc.List(context.Background(), contract.ListArticlesRequest{})
 		if err != nil {
 			t.Fatalf("List() error = %v", err)
 		}
@@ -527,7 +529,7 @@ func TestArticleService_List(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		resp, err := svc.List(context.Background(), ListArticlesRequest{
+		resp, err := svc.List(context.Background(), contract.ListArticlesRequest{
 			Limit: 200, // Exceeds max
 		})
 		if err != nil {
@@ -545,7 +547,7 @@ func TestArticleService_Update(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Original Title",
 			Content: "Original content",
 			Slug:    "original-slug",
@@ -555,7 +557,7 @@ func TestArticleService_Update(t *testing.T) {
 		}
 
 		newTitle := "Updated Title"
-		resp, err := svc.Update(context.Background(), UpdateArticleRequest{
+		resp, err := svc.Update(context.Background(), contract.UpdateArticleRequest{
 			ID:    created.ID,
 			Title: &newTitle,
 		})
@@ -573,7 +575,7 @@ func TestArticleService_Update(t *testing.T) {
 		svc := NewArticleService(repo)
 
 		newTitle := "Updated Title"
-		_, err := svc.Update(context.Background(), UpdateArticleRequest{
+		_, err := svc.Update(context.Background(), contract.UpdateArticleRequest{
 			Title: &newTitle,
 		})
 		if err != ErrIDRequired {
@@ -586,7 +588,7 @@ func TestArticleService_Update(t *testing.T) {
 		svc := NewArticleService(repo)
 
 		newTitle := "Updated Title"
-		_, err := svc.Update(context.Background(), UpdateArticleRequest{
+		_, err := svc.Update(context.Background(), contract.UpdateArticleRequest{
 			ID:    uuid.New().String(),
 			Title: &newTitle,
 		})
@@ -599,7 +601,7 @@ func TestArticleService_Update(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Original Title",
 			Content: "Content",
 			Slug:    "test-slug",
@@ -609,7 +611,7 @@ func TestArticleService_Update(t *testing.T) {
 		}
 
 		emptyTitle := ""
-		_, err = svc.Update(context.Background(), UpdateArticleRequest{
+		_, err = svc.Update(context.Background(), contract.UpdateArticleRequest{
 			ID:    created.ID,
 			Title: &emptyTitle,
 		})
@@ -622,7 +624,7 @@ func TestArticleService_Update(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Title",
 			Content: "Original content",
 			Slug:    "test-slug",
@@ -632,7 +634,7 @@ func TestArticleService_Update(t *testing.T) {
 		}
 
 		emptyContent := ""
-		_, err = svc.Update(context.Background(), UpdateArticleRequest{
+		_, err = svc.Update(context.Background(), contract.UpdateArticleRequest{
 			ID:      created.ID,
 			Content: &emptyContent,
 		})
@@ -645,7 +647,7 @@ func TestArticleService_Update(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Title",
 			Content: "Content",
 			Slug:    "original-slug",
@@ -655,7 +657,7 @@ func TestArticleService_Update(t *testing.T) {
 		}
 
 		emptySlug := ""
-		_, err = svc.Update(context.Background(), UpdateArticleRequest{
+		_, err = svc.Update(context.Background(), contract.UpdateArticleRequest{
 			ID:   created.ID,
 			Slug: &emptySlug,
 		})
@@ -670,7 +672,7 @@ func TestArticleService_Delete(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Test Article",
 			Content: "Content",
 			Slug:    "test-slug",
@@ -679,7 +681,7 @@ func TestArticleService_Delete(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		resp, err := svc.Delete(context.Background(), DeleteArticleRequest{
+		resp, err := svc.Delete(context.Background(), contract.DeleteArticleRequest{
 			ID: created.ID,
 		})
 		if err != nil {
@@ -694,7 +696,7 @@ func TestArticleService_Delete(t *testing.T) {
 		}
 
 		// Verify deletion
-		_, err = svc.Get(context.Background(), GetArticleRequest{ID: created.ID})
+		_, err = svc.Get(context.Background(), contract.GetArticleRequest{ID: created.ID})
 		if err != ErrNotFound {
 			t.Errorf("expected ErrNotFound after delete, got %v", err)
 		}
@@ -704,7 +706,7 @@ func TestArticleService_Delete(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Delete(context.Background(), DeleteArticleRequest{})
+		_, err := svc.Delete(context.Background(), contract.DeleteArticleRequest{})
 		if err != ErrIDRequired {
 			t.Errorf("expected ErrIDRequired, got %v", err)
 		}
@@ -714,7 +716,7 @@ func TestArticleService_Delete(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Delete(context.Background(), DeleteArticleRequest{ID: "not-a-uuid"})
+		_, err := svc.Delete(context.Background(), contract.DeleteArticleRequest{ID: "not-a-uuid"})
 		if err != ErrIDInvalid {
 			t.Errorf("expected ErrIDInvalid, got %v", err)
 		}
@@ -726,7 +728,7 @@ func TestArticleService_Publish(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:     "Draft Article",
 			Content:   "Content",
 			Slug:      "draft-slug",
@@ -740,7 +742,7 @@ func TestArticleService_Publish(t *testing.T) {
 			t.Error("expected initial Published to be false")
 		}
 
-		resp, err := svc.Publish(context.Background(), PublishArticleRequest{
+		resp, err := svc.Publish(context.Background(), contract.PublishArticleRequest{
 			ID: created.ID,
 		})
 		if err != nil {
@@ -756,7 +758,7 @@ func TestArticleService_Publish(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Publish(context.Background(), PublishArticleRequest{})
+		_, err := svc.Publish(context.Background(), contract.PublishArticleRequest{})
 		if err != ErrIDRequired {
 			t.Errorf("expected ErrIDRequired, got %v", err)
 		}
@@ -766,7 +768,7 @@ func TestArticleService_Publish(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Publish(context.Background(), PublishArticleRequest{ID: "not-a-uuid"})
+		_, err := svc.Publish(context.Background(), contract.PublishArticleRequest{ID: "not-a-uuid"})
 		if err != ErrIDInvalid {
 			t.Errorf("expected ErrIDInvalid, got %v", err)
 		}
@@ -776,7 +778,7 @@ func TestArticleService_Publish(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		_, err := svc.Publish(context.Background(), PublishArticleRequest{
+		_, err := svc.Publish(context.Background(), contract.PublishArticleRequest{
 			ID: uuid.New().String(),
 		})
 		if err != ErrNotFound {
@@ -835,7 +837,7 @@ func TestArticleService_ErrorPropagation(t *testing.T) {
 		repo.createErr = errors.New("db connection failed")
 		svc := NewArticleService(repo)
 
-		_, err := svc.Create(context.Background(), CreateArticleRequest{
+		_, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Test Article",
 			Content: "Content",
 			Slug:    "test-slug",
@@ -855,7 +857,7 @@ func TestArticleService_ErrorPropagation(t *testing.T) {
 			ID: pgtype.UUID{Bytes: id, Valid: true},
 		}
 
-		_, err := svc.Get(context.Background(), GetArticleRequest{ID: id.String()})
+		_, err := svc.Get(context.Background(), contract.GetArticleRequest{ID: id.String()})
 		if err == nil || err.Error() != "db query failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}
@@ -866,7 +868,7 @@ func TestArticleService_ErrorPropagation(t *testing.T) {
 		repo.findAllErr = errors.New("db query failed")
 		svc := NewArticleService(repo)
 
-		_, err := svc.List(context.Background(), ListArticlesRequest{Limit: 10})
+		_, err := svc.List(context.Background(), contract.ListArticlesRequest{Limit: 10})
 		if err == nil || err.Error() != "db query failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}
@@ -877,7 +879,7 @@ func TestArticleService_ErrorPropagation(t *testing.T) {
 		repo.countErr = errors.New("count query failed")
 		svc := NewArticleService(repo)
 
-		_, err := svc.List(context.Background(), ListArticlesRequest{Limit: 10})
+		_, err := svc.List(context.Background(), contract.ListArticlesRequest{Limit: 10})
 		if err == nil || err.Error() != "count query failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}
@@ -887,7 +889,7 @@ func TestArticleService_ErrorPropagation(t *testing.T) {
 		repo := newMockRepository()
 		svc := NewArticleService(repo)
 
-		created, err := svc.Create(context.Background(), CreateArticleRequest{
+		created, err := svc.Create(context.Background(), contract.CreateArticleRequest{
 			Title:   "Test Article",
 			Content: "Content",
 			Slug:    "test-slug",
@@ -898,7 +900,7 @@ func TestArticleService_ErrorPropagation(t *testing.T) {
 
 		repo.publishErr = errors.New("db publish failed")
 
-		_, err = svc.Publish(context.Background(), PublishArticleRequest{ID: created.ID})
+		_, err = svc.Publish(context.Background(), contract.PublishArticleRequest{ID: created.ID})
 		if err == nil || err.Error() != "db publish failed" {
 			t.Errorf("expected repository error, got %v", err)
 		}

@@ -24,6 +24,10 @@ func main() {
 		mono.WithShutdownTimeout(shutdownTimeout),
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
+		// Reject module boundary violations (a module registering on a
+		// dependency's container, or calling an undeclared module's
+		// services.* subject on the event bus). See README "Module boundaries".
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
@@ -31,16 +35,24 @@ func main() {
 
 	// Register modules with the framework.
 	// The framework automatically handles:
-	// - ServiceProviderModule.RegisterServices() for request-reply services
+	// - ServiceProviderModule.RegisterServices() for the typed service contracts
 	// - DependentModule.SetDependencyServiceContainer() for cross-module communication
+	// - ServiceConsumerModule.ConsumeServices() validation at startup
 	// - EventBusAwareModule.SetEventBus() for event publishing
 	// - EventConsumerModule.RegisterEventConsumers() for event subscriptions
 	//
-	// Order: independent modules first, then modules with dependencies
-	app.Register(user.NewModule())         // Independent module (no dependencies)
-	app.Register(notification.NewModule()) // Event consumer (subscribes to task events)
-	app.Register(task.NewModule())         // Core domain (depends on user, emits events)
-	app.Register(api.NewModule())          // Driving adapter (depends on task)
+	// Start order is resolved from Dependencies(), not registration order.
+	modules := []mono.Module{
+		user.NewModule(),         // Independent module (no dependencies)
+		notification.NewModule(), // Event consumer (subscribes to task events)
+		task.NewModule(),         // Core domain (depends on user, emits events)
+		api.NewModule(),          // Driving adapter (depends on task)
+	}
+	for _, m := range modules {
+		if err := app.Register(m); err != nil {
+			log.Fatalf("Failed to register module %s: %v", m.Name(), err)
+		}
+	}
 
 	// Start application
 	if err := app.Start(context.Background()); err != nil {
@@ -74,7 +86,8 @@ func printStartupInfo() {
 	log.Println("  - Driving Adapter: API module (Fiber HTTP server)")
 	log.Println("  - Core Domain: Task module (business logic)")
 	log.Println("  - Driven Adapter: Notification module (event consumer)")
-	log.Println("  - Ports: TaskPort, UserPort interfaces")
+	log.Println("  - Contracts: task/contract, user/contract (typed services + events)")
+	log.Println("  - Ports: api.TaskPort, task.UserPort (owned by the consumer)")
 	log.Println("")
 	log.Println("Demo Users Available:")
 	log.Println("  - user-1: Alice Johnson (alice@example.com)")

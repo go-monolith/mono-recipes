@@ -2,14 +2,14 @@ package user
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/example/sqlc-postgres-demo/modules/user/contract"
 )
 
 // UserModule provides user management services via sqlc + PostgreSQL.
@@ -83,37 +83,23 @@ func (m *UserModule) Health(ctx context.Context) mono.HealthStatus {
 	}
 }
 
-// RegisterServices registers request-reply services in the service container.
-// The framework automatically prefixes service names with "services.<module>."
-// so "create" becomes "services.user.create" in the NATS subject.
+// RegisterServices is the module's driving adapter: it binds each handler to
+// the module's own typed contract (see contract/contract.go), so service names,
+// subjects (services.user.<service>) and JSON encoding are declared once.
 func (m *UserModule) RegisterServices(container mono.ServiceContainer) error {
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "create", json.Unmarshal, json.Marshal, m.handleCreate,
-	); err != nil {
+	if err := contract.CreateUser.Register(container, m.handleCreate); err != nil {
 		return fmt.Errorf("failed to register create service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "get", json.Unmarshal, json.Marshal, m.handleGet,
-	); err != nil {
+	if err := contract.GetUser.Register(container, m.handleGet); err != nil {
 		return fmt.Errorf("failed to register get service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "list", json.Unmarshal, json.Marshal, m.handleList,
-	); err != nil {
+	if err := contract.ListUsers.Register(container, m.handleList); err != nil {
 		return fmt.Errorf("failed to register list service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "update", json.Unmarshal, json.Marshal, m.handleUpdate,
-	); err != nil {
+	if err := contract.UpdateUser.Register(container, m.handleUpdate); err != nil {
 		return fmt.Errorf("failed to register update service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "delete", json.Unmarshal, json.Marshal, m.handleDelete,
-	); err != nil {
+	if err := contract.DeleteUser.Register(container, m.handleDelete); err != nil {
 		return fmt.Errorf("failed to register delete service: %w", err)
 	}
 
@@ -167,22 +153,22 @@ func (m *UserModule) Stop(_ context.Context) error {
 // Handler methods delegate to the service layer.
 // These thin handlers follow SRP by only handling request/response mapping.
 
-func (m *UserModule) handleCreate(ctx context.Context, req CreateUserRequest, _ *mono.Msg) (UserResponse, error) {
+func (m *UserModule) handleCreate(ctx context.Context, req contract.CreateUserRequest, _ *mono.Msg) (contract.UserResponse, error) {
 	return m.service.Create(ctx, req)
 }
 
-func (m *UserModule) handleGet(ctx context.Context, req GetUserRequest, _ *mono.Msg) (UserResponse, error) {
+func (m *UserModule) handleGet(ctx context.Context, req contract.GetUserRequest, _ *mono.Msg) (contract.UserResponse, error) {
 	return m.service.Get(ctx, req)
 }
 
-func (m *UserModule) handleList(ctx context.Context, req ListUsersRequest, _ *mono.Msg) (ListUsersResponse, error) {
+func (m *UserModule) handleList(ctx context.Context, req contract.ListUsersRequest, _ *mono.Msg) (contract.ListUsersResponse, error) {
 	return m.service.List(ctx, req)
 }
 
-func (m *UserModule) handleUpdate(ctx context.Context, req UpdateUserRequest, _ *mono.Msg) (UserResponse, error) {
+func (m *UserModule) handleUpdate(ctx context.Context, req contract.UpdateUserRequest, _ *mono.Msg) (contract.UserResponse, error) {
 	return m.service.Update(ctx, req)
 }
 
-func (m *UserModule) handleDelete(ctx context.Context, req DeleteUserRequest, _ *mono.Msg) (DeleteUserResponse, error) {
+func (m *UserModule) handleDelete(ctx context.Context, req contract.DeleteUserRequest, _ *mono.Msg) (contract.DeleteUserResponse, error) {
 	return m.service.Delete(ctx, req)
 }

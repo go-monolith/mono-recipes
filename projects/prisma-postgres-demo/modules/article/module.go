@@ -2,15 +2,15 @@ package article
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/example/prisma-postgres-demo/modules/article/contract"
 )
 
 // ArticleModule provides article management services via sqlc + Prisma Postgres.
@@ -80,38 +80,26 @@ func (m *ArticleModule) Health(ctx context.Context) mono.HealthStatus {
 	}
 }
 
-// RegisterServices registers request-reply services in the service container.
-// The framework automatically prefixes service names with "services.<module>."
-// so "create" becomes "services.article.create" in the NATS subject.
+// RegisterServices is the module's driving adapter: it binds each handler to
+// the module's own typed contract (see contract/contract.go), so service names,
+// subjects (services.article.<service>) and JSON encoding are declared once.
 func (m *ArticleModule) RegisterServices(container mono.ServiceContainer) error {
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "create", json.Unmarshal, json.Marshal, m.handleCreate,
-	); err != nil {
+	if err := contract.CreateArticle.Register(container, m.handleCreate); err != nil {
 		return fmt.Errorf("register create: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "get", json.Unmarshal, json.Marshal, m.handleGet,
-	); err != nil {
+	if err := contract.GetArticle.Register(container, m.handleGet); err != nil {
 		return fmt.Errorf("register get: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "list", json.Unmarshal, json.Marshal, m.handleList,
-	); err != nil {
+	if err := contract.ListArticles.Register(container, m.handleList); err != nil {
 		return fmt.Errorf("register list: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "update", json.Unmarshal, json.Marshal, m.handleUpdate,
-	); err != nil {
+	if err := contract.UpdateArticle.Register(container, m.handleUpdate); err != nil {
 		return fmt.Errorf("register update: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "delete", json.Unmarshal, json.Marshal, m.handleDelete,
-	); err != nil {
+	if err := contract.DeleteArticle.Register(container, m.handleDelete); err != nil {
 		return fmt.Errorf("register delete: %w", err)
 	}
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "publish", json.Unmarshal, json.Marshal, m.handlePublish,
-	); err != nil {
+	if err := contract.PublishArticle.Register(container, m.handlePublish); err != nil {
 		return fmt.Errorf("register publish: %w", err)
 	}
 
@@ -174,26 +162,26 @@ func (m *ArticleModule) Stop(_ context.Context) error {
 
 // Handler methods delegate to the service layer.
 
-func (m *ArticleModule) handleCreate(ctx context.Context, req CreateArticleRequest, _ *mono.Msg) (ArticleResponse, error) {
+func (m *ArticleModule) handleCreate(ctx context.Context, req contract.CreateArticleRequest, _ *mono.Msg) (contract.ArticleResponse, error) {
 	return m.service.Create(ctx, req)
 }
 
-func (m *ArticleModule) handleGet(ctx context.Context, req GetArticleRequest, _ *mono.Msg) (ArticleResponse, error) {
+func (m *ArticleModule) handleGet(ctx context.Context, req contract.GetArticleRequest, _ *mono.Msg) (contract.ArticleResponse, error) {
 	return m.service.Get(ctx, req)
 }
 
-func (m *ArticleModule) handleList(ctx context.Context, req ListArticlesRequest, _ *mono.Msg) (ListArticlesResponse, error) {
+func (m *ArticleModule) handleList(ctx context.Context, req contract.ListArticlesRequest, _ *mono.Msg) (contract.ListArticlesResponse, error) {
 	return m.service.List(ctx, req)
 }
 
-func (m *ArticleModule) handleUpdate(ctx context.Context, req UpdateArticleRequest, _ *mono.Msg) (ArticleResponse, error) {
+func (m *ArticleModule) handleUpdate(ctx context.Context, req contract.UpdateArticleRequest, _ *mono.Msg) (contract.ArticleResponse, error) {
 	return m.service.Update(ctx, req)
 }
 
-func (m *ArticleModule) handleDelete(ctx context.Context, req DeleteArticleRequest, _ *mono.Msg) (DeleteArticleResponse, error) {
+func (m *ArticleModule) handleDelete(ctx context.Context, req contract.DeleteArticleRequest, _ *mono.Msg) (contract.DeleteArticleResponse, error) {
 	return m.service.Delete(ctx, req)
 }
 
-func (m *ArticleModule) handlePublish(ctx context.Context, req PublishArticleRequest, _ *mono.Msg) (ArticleResponse, error) {
+func (m *ArticleModule) handlePublish(ctx context.Context, req contract.PublishArticleRequest, _ *mono.Msg) (contract.ArticleResponse, error) {
 	return m.service.Publish(ctx, req)
 }

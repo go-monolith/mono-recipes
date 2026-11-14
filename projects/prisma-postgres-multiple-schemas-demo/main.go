@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/example/prisma-postgres-demo/modules/article"
-	"github.com/example/prisma-postgres-demo/modules/blog"
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/article"
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/blog"
 	gfshutdown "github.com/gelmium/graceful-shutdown"
 	"github.com/go-monolith/mono"
 )
@@ -23,14 +23,21 @@ func main() {
 		mono.WithShutdownTimeout(shutdownTimeout),
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
+		// Reject Ports and Adapters violations (e.g. a module registering on
+		// another module's container) instead of only reporting them at Stop.
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
 	}
 
 	// Register modules
-	app.Register(article.NewModule())
-	app.Register(blog.NewModule())
+	if err := app.Register(article.NewModule()); err != nil {
+		log.Fatalf("Failed to register article module: %v", err)
+	}
+	if err := app.Register(blog.NewModule()); err != nil {
+		log.Fatalf("Failed to register blog module: %v", err)
+	}
 
 	// Start application
 	if err := app.Start(context.Background()); err != nil {
@@ -79,23 +86,23 @@ Available Services (via NATS request-reply):
   - services.article.publish - Publish a draft article
 
   Blog Module (Posts):
-  - services.blog.post.create  - Create a new post
-  - services.blog.post.get     - Get post by ID or slug
-  - services.blog.post.list    - List posts with pagination
-  - services.blog.post.update  - Update post by ID
-  - services.blog.post.delete  - Delete post by ID
-  - services.blog.post.publish - Publish a draft post
+  - services.blog.post-create      - Create a new post
+  - services.blog.post-get         - Get post by ID or slug
+  - services.blog.post-list        - List posts with pagination
+  - services.blog.post-update      - Update post by ID
+  - services.blog.post-delete      - Delete post by ID
+  - services.blog.post-publish     - Publish a draft post
 
   Blog Module (Comments):
-  - services.blog.comment.create - Create a comment on a post
-  - services.blog.comment.get    - Get comment by ID
-  - services.blog.comment.list   - List comments by post ID
-  - services.blog.comment.update - Update comment by ID
-  - services.blog.comment.delete - Delete comment by ID
+  - services.blog.comment-create   - Create a comment on a post
+  - services.blog.comment-get      - Get comment by ID
+  - services.blog.comment-list     - List comments by post ID
+  - services.blog.comment-update   - Update comment by ID
+  - services.blog.comment-delete   - Delete comment by ID
 
 Use the nats CLI to interact with services:
   nats request services.article.create '{"title":"Hello","content":"World","slug":"hello-world"}'
-  nats request services.blog.post.create '{"title":"My Post","content":"Content","slug":"my-post"}'
+  nats request services.blog.post-create '{"title":"My Post","content":"Content","slug":"my-post"}'
 
 Run ./demo.sh to see full CRUD workflow
 

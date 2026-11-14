@@ -13,19 +13,29 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
-	"github.com/example/url-shortener-demo/modules/analytics"
-	"github.com/example/url-shortener-demo/modules/shortener"
+	analyticscontract "github.com/example/url-shortener-demo/modules/analytics/contract"
+	shortenercontract "github.com/example/url-shortener-demo/modules/shortener/contract"
 )
 
-// Module implements the HTTP server module using Fiber framework.
+// Module implements the HTTP server module using Fiber framework. It is the
+// driving adapter of the application's HTTP API and reaches the shortener and
+// analytics modules only through its own ports (ports.go) and the adapters
+// over their contracts (adapter.go).
 type Module struct {
-	app               *fiber.App
-	handlers          *Handlers
-	addr              string
-	shortenerAdapter  shortener.ShortenerAdapterPort
-	analyticsAdapter  analytics.AnalyticsAdapterPort
-	logger            types.Logger
+	app       *fiber.App
+	handlers  *Handlers
+	addr      string
+	shortener ShortenerPort
+	analytics AnalyticsPort
+	logger    types.Logger
 }
+
+// Compile-time interface checks
+var (
+	_ mono.Module                 = (*Module)(nil)
+	_ mono.DependentModule        = (*Module)(nil)
+	_ types.ServiceConsumerModule = (*Module)(nil) // no mono.* alias in v0.1.1
+)
 
 // NewModule creates a new HTTP server module.
 func NewModule(addr string, moduleLogger types.Logger) *Module {
@@ -42,23 +52,43 @@ func (m *Module) Name() string {
 
 // Dependencies declares which modules this module depends on.
 func (m *Module) Dependencies() []string {
-	return []string{"shortener", "analytics"}
+	return []string{shortenercontract.ModuleName, analyticscontract.ModuleName}
 }
 
-// SetDependencyServiceContainer receives service containers from dependency modules.
+// ConsumeServices declares every contract this module calls. The framework
+// validates the list at startup: each provider must be a declared dependency,
+// must have registered the service, and the service kind must match.
+func (m *Module) ConsumeServices() []types.BaseServiceDefinition {
+	return []types.BaseServiceDefinition{
+		shortenercontract.ShortenURL.ToBase(),
+		shortenercontract.ResolveURL.ToBase(),
+		shortenercontract.GetStats.ToBase(),
+		shortenercontract.ListURLs.ToBase(),
+		shortenercontract.DeleteURL.ToBase(),
+		analyticscontract.GetSummary.ToBase(),
+		analyticscontract.GetLogs.ToBase(),
+	}
+}
+
+// SetDependencyServiceContainer wires the adapters behind the ports. The
+// container is a read-only view of the dependency's services.
 func (m *Module) SetDependencyServiceContainer(module string, container mono.ServiceContainer) {
 	switch module {
-	case "shortener":
-		m.shortenerAdapter = shortener.NewShortenerAdapter(container)
+	case shortenercontract.ModuleName:
+		m.shortener = shortenerAdapter{container: container}
 		m.logger.Info("Received shortener service container")
-	case "analytics":
-		m.analyticsAdapter = analytics.NewAnalyticsAdapter(container)
+	case analyticscontract.ModuleName:
+		m.analytics = analyticsAdapter{container: container}
 		m.logger.Info("Received analytics service container")
 	}
 }
 
 // Start initializes and starts the HTTP server.
-func (m *Module) Start(ctx context.Context) error {
+func (m *Module) Start(_ context.Context) error {
+	if m.shortener == nil || m.analytics == nil {
+		return fmt.Errorf("shortener and analytics dependencies not set - dependency injection failed")
+	}
+
 	// Create Fiber app with custom config
 	m.app = fiber.New(fiber.Config{
 		AppName:               "URL Shortener Demo",
@@ -83,7 +113,7 @@ func (m *Module) Start(ctx context.Context) error {
 	}))
 
 	// Create handlers
-	m.handlers = NewHandlers(m.shortenerAdapter, m.analyticsAdapter)
+	m.handlers = NewHandlers(m.shortener, m.analytics)
 
 	// Register routes
 	m.registerRoutes()

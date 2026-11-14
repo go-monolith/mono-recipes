@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,7 +25,15 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, getTestDatabaseURL())
+	config, err := pgxpool.ParseConfig(getTestDatabaseURL())
+	if err != nil {
+		t.Fatalf("invalid TEST_DATABASE_URL: %v", err)
+	}
+	// Same setting as the module's Start: PGlite (Prisma's local PostgreSQL)
+	// has issues with pgx's prepared statement cache.
+	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Skipf("Skipping test: database not available: %v", err)
 	}
@@ -36,7 +45,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	}
 
 	// Clean up test data before each test
-	_, err = pool.Exec(ctx, "DELETE FROM articles WHERE slug LIKE 'test-%'")
+	_, err = pool.Exec(ctx, "DELETE FROM article_module.articles WHERE slug LIKE 'test-%'")
 	if err != nil {
 		pool.Close()
 		t.Fatalf("failed to clean up test data: %v", err)

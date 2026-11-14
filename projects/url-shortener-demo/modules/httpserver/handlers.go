@@ -5,18 +5,17 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/example/url-shortener-demo/modules/analytics"
-	"github.com/example/url-shortener-demo/modules/shortener"
+	shortenercontract "github.com/example/url-shortener-demo/modules/shortener/contract"
 )
 
 // Handlers contains HTTP request handlers for URL shortener operations.
 type Handlers struct {
-	shortener shortener.ShortenerAdapterPort
-	analytics analytics.AnalyticsAdapterPort
+	shortener ShortenerPort
+	analytics AnalyticsPort
 }
 
 // NewHandlers creates a new handlers instance.
-func NewHandlers(shortener shortener.ShortenerAdapterPort, analytics analytics.AnalyticsAdapterPort) *Handlers {
+func NewHandlers(shortener ShortenerPort, analytics AnalyticsPort) *Handlers {
 	return &Handlers{
 		shortener: shortener,
 		analytics: analytics,
@@ -25,7 +24,7 @@ func NewHandlers(shortener shortener.ShortenerAdapterPort, analytics analytics.A
 
 // ShortenURL handles URL shortening requests (POST /api/v1/shorten).
 func (h *Handlers) ShortenURL(c *fiber.Ctx) error {
-	var req shortener.ShortenRequest
+	var req shortenercontract.ShortenRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "Invalid request body",
@@ -39,9 +38,9 @@ func (h *Handlers) ShortenURL(c *fiber.Ctx) error {
 		})
 	}
 
-	result, err := h.shortener.ShortenURL(c.Context(), req)
+	result, err := h.shortener.ShortenURL(c.UserContext(), req)
 	if err != nil {
-		if errors.Is(err, shortener.ErrInvalidURL) {
+		if errors.Is(err, shortenercontract.ErrInvalidURL) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error":   "Invalid URL",
 				"details": err.Error(),
@@ -66,19 +65,23 @@ func (h *Handlers) Redirect(c *fiber.Ctx) error {
 		})
 	}
 
-	originalURL, err := h.shortener.ResolveURL(c.Context(), shortCode, c.Get("User-Agent"), c.IP())
+	originalURL, err := h.shortener.ResolveURL(c.UserContext(), shortenercontract.ResolveRequest{
+		ShortCode: shortCode,
+		UserAgent: c.Get("User-Agent"),
+		IPAddress: c.IP(),
+	})
 	if err != nil {
-		if errors.Is(err, shortener.ErrURLNotFound) {
+		if errors.Is(err, shortenercontract.ErrURLNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"error": "URL not found",
 			})
 		}
-		if errors.Is(err, shortener.ErrInvalidShortCode) {
+		if errors.Is(err, shortenercontract.ErrInvalidShortCode) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid short code format",
 			})
 		}
-		if errors.Is(err, shortener.ErrURLExpired) {
+		if errors.Is(err, shortenercontract.ErrURLExpired) {
 			return c.Status(fiber.StatusGone).JSON(fiber.Map{
 				"error": "URL has expired",
 			})
@@ -102,14 +105,14 @@ func (h *Handlers) GetStats(c *fiber.Ctx) error {
 		})
 	}
 
-	stats, err := h.shortener.GetStats(c.Context(), shortCode)
+	stats, err := h.shortener.GetStats(c.UserContext(), shortCode)
 	if err != nil {
-		if errors.Is(err, shortener.ErrURLNotFound) {
+		if errors.Is(err, shortenercontract.ErrURLNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"error": "URL not found",
 			})
 		}
-		if errors.Is(err, shortener.ErrInvalidShortCode) {
+		if errors.Is(err, shortenercontract.ErrInvalidShortCode) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid short code format",
 			})
@@ -125,7 +128,7 @@ func (h *Handlers) GetStats(c *fiber.Ctx) error {
 
 // ListURLs handles URL listing requests (GET /api/v1/urls).
 func (h *Handlers) ListURLs(c *fiber.Ctx) error {
-	urls, err := h.shortener.ListURLs(c.Context())
+	urls, err := h.shortener.ListURLs(c.UserContext())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Failed to list URLs",
@@ -148,14 +151,14 @@ func (h *Handlers) DeleteURL(c *fiber.Ctx) error {
 		})
 	}
 
-	err := h.shortener.DeleteURL(c.Context(), shortCode)
+	err := h.shortener.DeleteURL(c.UserContext(), shortCode)
 	if err != nil {
-		if errors.Is(err, shortener.ErrURLNotFound) {
+		if errors.Is(err, shortenercontract.ErrURLNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"error": "URL not found",
 			})
 		}
-		if errors.Is(err, shortener.ErrInvalidShortCode) {
+		if errors.Is(err, shortenercontract.ErrInvalidShortCode) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid short code format",
 			})
@@ -174,7 +177,7 @@ func (h *Handlers) DeleteURL(c *fiber.Ctx) error {
 
 // GetAnalytics handles analytics summary requests (GET /api/v1/analytics).
 func (h *Handlers) GetAnalytics(c *fiber.Ctx) error {
-	summary, err := h.analytics.GetSummary(c.Context())
+	summary, err := h.analytics.GetSummary(c.UserContext())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Failed to get analytics summary",
@@ -191,7 +194,7 @@ func (h *Handlers) GetAnalyticsLogs(c *fiber.Ctx) error {
 		limit = 1000
 	}
 
-	logs, err := h.analytics.GetRecentLogs(c.Context(), limit)
+	logs, err := h.analytics.GetRecentLogs(c.UserContext(), limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Failed to get analytics logs",

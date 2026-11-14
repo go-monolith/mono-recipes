@@ -1,13 +1,13 @@
 # JWT Authentication Demo
 
-A complete JWT authentication implementation using the mono framework, Echo, GORM, and SQLite. This recipe demonstrates secure user authentication with access and refresh tokens.
+A complete JWT authentication implementation using the [mono framework](https://github.com/go-monolith/mono) v0.1.1, Fiber, GORM, and SQLite. This recipe demonstrates secure user authentication with access and refresh tokens.
 
 ## What This Recipe Demonstrates
 
 - **Secure Password Hashing**: Using bcrypt with configurable cost factor
 - **JWT Token Generation**: Access tokens (15 min) and refresh tokens (7 days)
 - **Authentication Middleware**: Protecting routes with Bearer token validation
-- **ServiceProviderModule Pattern**: Clean cross-module communication via mono framework
+- **Typed service contracts**: the api module calls the auth module only through `auth/contract`, behind a port it owns
 - **SQLite with GORM**: Simple embedded database for user storage
 
 ## Why JWT for Stateless Authentication?
@@ -44,24 +44,30 @@ JWT (JSON Web Tokens) provides stateless authentication, meaning the server does
 
 ```
 jwt-auth-demo/
-├── main.go                    # Application entry point
+├── main.go                    # Application entry point (strict module boundaries)
+├── boundaries_test.go         # Whole-app boundary report test (in-process NATS)
 ├── domain/
 │   └── user/
-│       └── entity.go          # User entity and types
+│       └── entity.go          # User entity and types (used by the auth module only)
 ├── modules/
 │   ├── auth/
-│   │   ├── module.go          # Auth ServiceProviderModule
+│   │   ├── contract/
+│   │   │   └── contract.go    # Published port: DTOs + typed service contracts
+│   │   ├── module.go          # Auth ServiceProviderModule (registers via contract)
 │   │   ├── service.go         # Business logic
 │   │   ├── repository.go      # Database access
 │   │   ├── jwt.go             # JWT token handling
 │   │   ├── password.go        # Password hashing
-│   │   ├── adapter.go         # Cross-module adapter
-│   │   └── types.go           # Request/response types
+│   │   └── module_test.go     # monotest.CheckModule conformance test
 │   └── api/
-│       ├── module.go          # API HTTP module
+│       ├── module.go          # API HTTP module (DependentModule + ServiceConsumerModule)
+│       ├── ports.go           # AuthPort: driven port owned by api
+│       ├── adapter.go         # authAdapter: AuthPort over auth/contract
 │       ├── handlers.go        # HTTP handlers
 │       ├── middleware.go      # Auth middleware
-│       └── types.go           # API types
+│       ├── types.go           # API types
+│       ├── middleware_test.go # Middleware unit tests (fake AuthPort)
+│       └── module_test.go     # monotest.CheckModule conformance test
 ├── demo.sh                    # Demo script
 └── README.md
 ```
@@ -81,6 +87,9 @@ go build -o bin/jwt-auth-demo .
 
 # Run the server
 ./bin/jwt-auth-demo
+
+# Run the tests (unit, module conformance, whole-app boundary report)
+go test ./...
 ```
 
 ### Using the Demo Script
@@ -219,14 +228,63 @@ type JWTClaims struct {
 
 ### Middleware Integration
 
-The auth middleware extracts and validates the Bearer token, then stores claims in the Fiber context:
+The auth middleware extracts the Bearer token, validates it through the
+`validate-token` contract (via `AuthPort`), then stores the caller's claims in
+the Fiber context:
 
 ```go
-claims, ok := c.Locals("user").(*domain.Claims)
+claims, ok := c.Locals(api.UserContextKey).(*api.Claims)
 if ok {
     // User is authenticated
     userID := claims.UserID
 }
+```
+
+## Module Boundaries
+
+The api module never imports the auth module package; it depends on
+`modules/auth/contract` only.
+
+```go
+// modules/auth/contract/contract.go: declared once, shared by both sides
+var ValidateToken = helper.RequestReplyService[ValidateTokenRequest, ValidateTokenResponse]("auth", "validate-token")
+
+// modules/auth/module.go: the provider registers through the contract
+func (m *AuthModule) RegisterServices(container mono.ServiceContainer) error {
+    // ... Register, Login, RefreshToken, GetUser likewise
+    return contract.ValidateToken.Register(container, m.handleValidateToken)
+}
+
+// modules/api/adapter.go: the consumer calls through the contract
+func (a authAdapter) ValidateToken(ctx context.Context, req authcontract.ValidateTokenRequest) (authcontract.ValidateTokenResponse, error) {
+    return authcontract.ValidateToken.Call(ctx, a.container, req)
+}
+
+// modules/api/module.go: every consumed contract is declared
+func (m *APIModule) ConsumeServices() []types.BaseServiceDefinition {
+    return []types.BaseServiceDefinition{
+        authcontract.Register.ToBase(), authcontract.Login.ToBase(), authcontract.RefreshToken.ToBase(),
+        authcontract.ValidateToken.ToBase(), authcontract.GetUser.ToBase(),
+    }
+}
+```
+
+- **Contract package**: service names and subjects (`services.auth.register`,
+  `services.auth.login`, `services.auth.refresh-token`,
+  `services.auth.validate-token`, `services.auth.get-user`) and the JSON
+  encoding live only in `auth/contract`.
+- **`ConsumeServices()`**: startup fails fast if the auth module does not
+  provide a contract the api module calls.
+- **Strict mode**: `main.go` enables `mono.WithStrictModuleBoundaries()`, so a
+  boundary violation (registering on a dependency's container, calling an
+  undeclared module's `services.*` subject) is rejected.
+- **Conformance tests**: `modules/*/module_test.go` run `monotest.CheckModule`
+  (no NATS) with a stand-in auth container and an exercise that calls every
+  provided and consumed contract; `boundaries_test.go` starts the whole app and
+  asserts `app.ModuleBoundaries()` has no violations and no unused dependencies.
+
+```bash
+go test ./modules/... -run Conformance -v
 ```
 
 ## Success Criteria

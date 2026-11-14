@@ -3,16 +3,12 @@ package analytics
 import (
 	"sync"
 	"time"
+
+	"github.com/example/url-shortener-demo/modules/analytics/contract"
 )
 
-// AccessLog represents a single access log entry.
-type AccessLog struct {
-	ShortCode   string    `json:"short_code"`
-	OriginalURL string    `json:"original_url"`
-	AccessedAt  time.Time `json:"accessed_at"`
-	UserAgent   string    `json:"user_agent,omitempty"`
-	IPAddress   string    `json:"ip_address,omitempty"`
-}
+// AccessLog is the access log entry exposed through the analytics contract.
+type AccessLog = contract.AccessLog
 
 // URLStats tracks statistics for a single URL.
 type URLStats struct {
@@ -143,7 +139,7 @@ func (s *AnalyticsStore) GetRecentAccessLogs(limit int) []AccessLog {
 }
 
 // GetSummary returns an overall analytics summary.
-func (s *AnalyticsStore) GetSummary() map[string]any {
+func (s *AnalyticsStore) GetSummary() contract.Summary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -152,31 +148,10 @@ func (s *AnalyticsStore) GetSummary() map[string]any {
 		totalAccesses += stats.TotalAccesses
 	}
 
-	return map[string]any{
-		"urls_created":   s.urlsCreated,
-		"urls_tracked":   len(s.urlStats),
-		"total_accesses": totalAccesses,
-		"access_logs":    len(s.accessLogs),
+	return contract.Summary{
+		URLsCreated:   s.urlsCreated,
+		URLsTracked:   len(s.urlStats),
+		TotalAccesses: totalAccesses,
+		AccessLogs:    len(s.accessLogs),
 	}
-}
-
-// Event types for unmarshaling (compatible with shortener's event structure)
-
-// URLCreatedEvent represents a URL creation event.
-// This is a local type that matches the JSON structure of shortener.URLCreatedEvent.
-type URLCreatedEvent struct {
-	ShortCode   string    `json:"short_code"`
-	OriginalURL string    `json:"original_url"`
-	CreatedAt   time.Time `json:"created_at"`
-	TTLSeconds  int64     `json:"ttl_seconds,omitempty"`
-}
-
-// URLAccessedEvent represents a URL access event.
-// This is a local type that matches the JSON structure of shortener.URLAccessedEvent.
-type URLAccessedEvent struct {
-	ShortCode   string    `json:"short_code"`
-	OriginalURL string    `json:"original_url"`
-	AccessedAt  time.Time `json:"accessed_at"`
-	UserAgent   string    `json:"user_agent,omitempty"`
-	IPAddress   string    `json:"ip_address,omitempty"`
 }

@@ -22,15 +22,26 @@ func main() {
 		mono.WithShutdownTimeout(shutdownTimeout),
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
+		// Reject module boundary violations (a module registering on a
+		// dependency's container, or calling an undeclared module's
+		// services.* subject on the event bus). See README "Module boundaries".
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
 	}
 
-	// Register modules with the framework
-	// Order: independent modules first, then dependent modules
-	app.Register(auth.NewModule()) // Independent module (provides auth services)
-	app.Register(api.NewModule())  // Depends on auth module
+	// Register modules with the framework. Start order is resolved from
+	// Dependencies(); ConsumeServices() is validated at startup.
+	modules := []mono.Module{
+		auth.NewModule(), // Independent module (provides auth/contract services)
+		api.NewModule(),  // Depends on auth, calls it through auth/contract
+	}
+	for _, m := range modules {
+		if err := app.Register(m); err != nil {
+			log.Fatalf("Failed to register module %s: %v", m.Name(), err)
+		}
+	}
 
 	// Start application
 	if err := app.Start(context.Background()); err != nil {

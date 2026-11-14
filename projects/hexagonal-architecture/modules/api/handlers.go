@@ -1,8 +1,9 @@
 package api
 
 import (
-	"github.com/example/hexagonal-architecture/modules/task"
 	"github.com/gofiber/fiber/v2"
+
+	taskcontract "github.com/example/hexagonal-architecture/modules/task/contract"
 )
 
 func (m *APIModule) setupRoutes() {
@@ -23,7 +24,7 @@ func (m *APIModule) healthHandler(c *fiber.Ctx) error {
 		Status: "healthy",
 		Details: map[string]any{
 			"module": "api",
-			"port":   3000,
+			"addr":   m.addr,
 		},
 	})
 }
@@ -40,7 +41,7 @@ func (m *APIModule) createTask(c *fiber.Ctx) error {
 		return validationError(c, "User ID is required")
 	}
 
-	resp, err := m.taskAdapter.CreateTask(c.Context(), &task.CreateTaskRequest{
+	resp, err := m.tasks.CreateTask(c.UserContext(), taskcontract.CreateTaskRequest{
 		Title:       req.Title,
 		Description: req.Description,
 		UserID:      req.UserID,
@@ -63,7 +64,7 @@ func (m *APIModule) getTask(c *fiber.Ctx) error {
 		return validationError(c, "Task ID is required")
 	}
 
-	resp, err := m.taskAdapter.GetTask(c.Context(), taskID)
+	resp, err := m.tasks.GetTask(c.UserContext(), taskcontract.GetTaskRequest{TaskID: taskID})
 	if err != nil {
 		return notFound(c, "Task not found")
 	}
@@ -74,14 +75,14 @@ func (m *APIModule) getTask(c *fiber.Ctx) error {
 func (m *APIModule) listTasks(c *fiber.Ctx) error {
 	userID := c.Query("user_id")
 
-	resp, err := m.taskAdapter.ListTasks(c.Context(), userID)
+	resp, err := m.tasks.ListTasks(c.UserContext(), taskcontract.ListTasksRequest{UserID: userID})
 	if err != nil {
 		return serverError(c, "list_failed", err.Error())
 	}
 
 	tasks := make([]TaskResponse, 0, len(resp.Tasks))
 	for _, t := range resp.Tasks {
-		tasks = append(tasks, taskResponseFromService(&t))
+		tasks = append(tasks, taskResponseFromService(t))
 	}
 
 	return c.JSON(ListTasksResponse{
@@ -101,7 +102,7 @@ func (m *APIModule) updateTask(c *fiber.Ctx) error {
 		return badRequest(c, "invalid_request", "Invalid request body")
 	}
 
-	resp, err := m.taskAdapter.UpdateTask(c.Context(), &task.UpdateTaskRequest{
+	resp, err := m.tasks.UpdateTask(c.UserContext(), taskcontract.UpdateTaskRequest{
 		TaskID:      taskID,
 		Title:       req.Title,
 		Description: req.Description,
@@ -120,7 +121,8 @@ func (m *APIModule) deleteTask(c *fiber.Ctx) error {
 	}
 
 	userID := c.Query("user_id")
-	if err := m.taskAdapter.DeleteTask(c.Context(), taskID, userID); err != nil {
+	resp, err := m.tasks.DeleteTask(c.UserContext(), taskcontract.DeleteTaskRequest{TaskID: taskID, UserID: userID})
+	if err != nil || !resp.Deleted {
 		return notFound(c, "Task not found")
 	}
 
@@ -133,7 +135,7 @@ func (m *APIModule) completeTask(c *fiber.Ctx) error {
 		return validationError(c, "Task ID is required")
 	}
 
-	resp, err := m.taskAdapter.CompleteTask(c.Context(), taskID)
+	resp, err := m.tasks.CompleteTask(c.UserContext(), taskcontract.CompleteTaskRequest{TaskID: taskID})
 	if err != nil {
 		return notFound(c, "Task not found")
 	}
@@ -141,8 +143,8 @@ func (m *APIModule) completeTask(c *fiber.Ctx) error {
 	return c.JSON(taskResponseFromService(resp))
 }
 
-// taskResponseFromService converts a task service response to an API response.
-func taskResponseFromService(t *task.TaskResponse) TaskResponse {
+// taskResponseFromService converts a task contract response to an API response.
+func taskResponseFromService(t taskcontract.TaskResponse) TaskResponse {
 	return TaskResponse{
 		ID:          t.ID,
 		Title:       t.Title,

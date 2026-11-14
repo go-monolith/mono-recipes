@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/example/background-jobs-demo/domain/job"
 	"github.com/example/background-jobs-demo/modules/api"
 	"github.com/example/background-jobs-demo/modules/worker"
 	gfshutdown "github.com/gelmium/graceful-shutdown"
@@ -27,28 +26,30 @@ func main() {
 		}
 	}
 
-	// Create shared job store
-	jobStore := job.NewStore()
-
 	// Create mono application with embedded NATS
 	app, err := mono.NewMonoApplication(
 		mono.WithLogLevel(mono.LogLevelInfo),
 		mono.WithLogFormat(mono.LogFormatText),
 		mono.WithShutdownTimeout(30*time.Second),
+		// Reject module boundary violations (a module registering on a
+		// dependency's container, or calling an undeclared module's
+		// services.* subject on the event bus). See README "Module boundaries".
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
 	}
 
 	// Create and register modules
-	// Worker module provides the QueueGroupService for job processing
-	workerModule := worker.NewModule(jobStore)
+	// Worker module owns job state and processing: create-job, get-job,
+	// list-jobs and the process-job QueueGroupService (worker/contract)
+	workerModule := worker.NewModule()
 	if err := app.Register(workerModule); err != nil {
 		log.Fatalf("Failed to register worker module: %v", err)
 	}
 
-	// API module depends on worker module to send jobs
-	apiModule := api.NewModule(apiPort, jobStore)
+	// API module depends on worker module and reaches it via worker/contract
+	apiModule := api.NewModule(apiPort)
 	if err := app.Register(apiModule); err != nil {
 		log.Fatalf("Failed to register API module: %v", err)
 	}

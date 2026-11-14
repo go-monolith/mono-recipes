@@ -3,38 +3,64 @@ package fileops
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-monolith/mono"
-	fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
 	"github.com/go-monolith/mono/pkg/types"
+	fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"node-nats-client-demo/modules/fileops/contract"
 )
 
-// mockLogger implements types.Logger for testing
+// The fileops module needs the fs-jetstream plugin, which monotest does not
+// emulate, so these tests run it in a real application: embedded NATS on a free
+// port, JetStream in a temp dir and strict module boundaries.
+
+// mockLogger implements types.Logger for testing.
 type mockLogger struct{}
 
-func (m *mockLogger) Debug(msg string, args ...any)          {}
-func (m *mockLogger) Info(msg string, args ...any)           {}
-func (m *mockLogger) Warn(msg string, args ...any)           {}
-func (m *mockLogger) Error(msg string, args ...any)          {}
-func (m *mockLogger) With(args ...any) types.Logger          { return m }
-func (m *mockLogger) WithError(err error) types.Logger       { return m }
+var _ types.Logger = (*mockLogger)(nil)
+
+func (m *mockLogger) Debug(msg string, args ...any)         {}
+func (m *mockLogger) Info(msg string, args ...any)          {}
+func (m *mockLogger) Warn(msg string, args ...any)          {}
+func (m *mockLogger) Error(msg string, args ...any)         {}
+func (m *mockLogger) With(args ...any) types.Logger         { return m }
+func (m *mockLogger) WithError(err error) types.Logger      { return m }
 func (m *mockLogger) WithModule(module string) types.Logger { return m }
 
-// createTestModule creates a module with an in-memory bucket for testing
-func createTestModule(t *testing.T) (*Module, fsjetstream.FileStoragePort) {
-	// For now, we'll create a simple module without full plugin initialization
-	// In a full integration test, you would initialize the plugin with a NATS connection
+// freePort returns a TCP port that is free right now, so the test does not
+// collide with a running demo binary on the default 4222.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	return l.Addr().(*net.TCPAddr).Port
+}
 
-	// Create mono application with embedded NATS for testing
+// startTestApp starts an application with the storage plugin and the fileops
+// module registered, as main.go does, and returns both.
+func startTestApp(t *testing.T) (mono.MonoApplication, *Module) {
+	t.Helper()
+
 	app, err := mono.NewMonoApplication(
 		mono.WithLogLevel(mono.LogLevelError), // Suppress logs in tests
+		mono.WithNATSPort(freePort(t)),
+		mono.WithJetStreamStorageDir(t.TempDir()),
+		// Default (non-strict) mode on purpose: violations are recorded in
+		// app.ModuleBoundaries() instead of rejected, so the report check below
+		// is meaningful. main.go runs strict once this report is clean.
 	)
 	require.NoError(t, err)
 
-	// Create fs-jetstream plugin with in-memory storage
 	plugin, err := fsjetstream.New(fsjetstream.Config{
 		Buckets: []fsjetstream.BucketConfig{
 			{
@@ -46,36 +72,98 @@ func createTestModule(t *testing.T) (*Module, fsjetstream.FileStoragePort) {
 		},
 	})
 	require.NoError(t, err)
+	require.NoError(t, app.RegisterPlugin(plugin, "storage"))
 
-	// Register plugin with the app
-	err = app.RegisterPlugin(plugin, "storage")
-	require.NoError(t, err)
+	module := NewModule(&mockLogger{})
+	require.NoError(t, app.Register(module))
 
-	// Start the application (this initializes NATS and plugins)
-	err = app.Start(context.Background())
-	require.NoError(t, err)
-
-	// Cleanup after test
+	require.NoError(t, app.Start(context.Background()))
 	t.Cleanup(func() {
 		_ = app.Stop(context.Background())
 	})
 
-	// Create module and inject plugin
-	module := NewModule(&mockLogger{})
-	module.SetPlugin("storage", plugin)
+	return app, module
+}
 
-	// Start module
-	err = module.Start(context.Background())
+// requireNoBoundaryViolations checks the application's boundary report.
+func requireNoBoundaryViolations(t *testing.T, app mono.MonoApplication) {
+	t.Helper()
+	for _, r := range app.ModuleBoundaries() {
+		assert.Empty(t, r.Violations, "module %s has boundary violations", r.Module)
+	}
+}
+
+// waitForZip polls the bucket until fileID has been archived as a ZIP.
+func waitForZip(t *testing.T, bucket fsjetstream.FileStoragePort, fileID string) []string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		files, err := bucket.List(fsjetstream.WithPrefix(fileID + "/"))
+		require.NoError(t, err)
+		names := make([]string, 0, len(files))
+		zipped := false
+		for _, f := range files {
+			names = append(names, f.Name)
+			zipped = zipped || strings.HasSuffix(f.Name, ".zip")
+		}
+		if zipped {
+			return names
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("file %s not archived in time, bucket has %v", fileID, names)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestFileOpsModuleInApp drives both services through their contracts, the way
+// the Node.js clients reach them (same subjects, same JSON), and checks the
+// module boundary report.
+func TestFileOpsModuleInApp(t *testing.T) {
+	app, module := startTestApp(t)
+	ctx := context.Background()
+	services := app.Services("fileops")
+
+	saved, err := contract.Save.Call(ctx, services, contract.FileSaveRequest{
+		Filename: "settings.json",
+		Content:  map[string]any{"theme": "dark"},
+	})
 	require.NoError(t, err)
+	require.Empty(t, saved.Error)
+	require.NotEmpty(t, saved.FileID)
 
-	return module, module.bucket
+	require.NoError(t, contract.Archive.Send(ctx, services, contract.FileArchiveRequest{FileID: saved.FileID}))
+	names := waitForZip(t, module.bucket, saved.FileID)
+	assert.Equal(t, []string{saved.FileID + "/settings.zip"}, names)
+
+	requireNoBoundaryViolations(t, app)
+}
+
+// TestArchive_InvalidJSONIsDropped sends a payload that does not decode to the
+// archive service: the contract drops it, and the worker keeps serving.
+func TestArchive_InvalidJSONIsDropped(t *testing.T) {
+	app, module := startTestApp(t)
+	ctx := context.Background()
+	services := app.Services("fileops")
+
+	client, err := services.GetQueueGroupService(contract.Archive.Name)
+	require.NoError(t, err)
+	require.NoError(t, client.Send(ctx, []byte("invalid json")))
+
+	fileID := "after-invalid"
+	_, err = module.bucket.Put(ctx, fileID+"/settings.json", []byte(`{"theme":"dark"}`))
+	require.NoError(t, err)
+	require.NoError(t, contract.Archive.Send(ctx, services, contract.FileArchiveRequest{FileID: fileID}))
+	waitForZip(t, module.bucket, fileID)
+
+	requireNoBoundaryViolations(t, app)
 }
 
 // TestHandleFileSave_Success tests successful file save operation
 func TestHandleFileSave_Success(t *testing.T) {
-	module, _ := createTestModule(t)
+	_, module := startTestApp(t)
 
-	req := FileSaveRequest{
+	req := contract.FileSaveRequest{
 		Filename: "test-settings.json",
 		Content: map[string]any{
 			"theme": "dark",
@@ -96,9 +184,9 @@ func TestHandleFileSave_Success(t *testing.T) {
 
 // TestHandleFileSave_EmptyFilename tests error handling for empty filename
 func TestHandleFileSave_EmptyFilename(t *testing.T) {
-	module, _ := createTestModule(t)
+	_, module := startTestApp(t)
 
-	req := FileSaveRequest{
+	req := contract.FileSaveRequest{
 		Filename: "",
 		Content: map[string]any{
 			"theme": "dark",
@@ -113,9 +201,9 @@ func TestHandleFileSave_EmptyFilename(t *testing.T) {
 
 // TestHandleFileSave_NullContent tests error handling for null content
 func TestHandleFileSave_NullContent(t *testing.T) {
-	module, _ := createTestModule(t)
+	_, module := startTestApp(t)
 
-	req := FileSaveRequest{
+	req := contract.FileSaveRequest{
 		Filename: "test.json",
 		Content:  nil,
 	}
@@ -128,7 +216,8 @@ func TestHandleFileSave_NullContent(t *testing.T) {
 
 // TestHandleFileArchive_Success tests successful file archive operation
 func TestHandleFileArchive_Success(t *testing.T) {
-	module, bucket := createTestModule(t)
+	_, module := startTestApp(t)
+	bucket := module.bucket
 
 	// First, save a file to archive
 	content := map[string]any{"theme": "dark"}
@@ -141,18 +230,7 @@ func TestHandleFileArchive_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now archive it
-	archiveReq := FileArchiveRequest{
-		FileID: fileID,
-	}
-
-	reqBytes, err := json.Marshal(archiveReq)
-	require.NoError(t, err)
-
-	msg := &mono.Msg{
-		Data: reqBytes,
-	}
-
-	archiveErr := module.handleFileArchive(context.Background(), msg)
+	archiveErr := module.handleFileArchive(context.Background(), contract.FileArchiveRequest{FileID: fileID}, nil)
 	assert.NoError(t, archiveErr)
 
 	// Verify ZIP file exists
@@ -169,40 +247,25 @@ func TestHandleFileArchive_Success(t *testing.T) {
 
 // TestHandleFileArchive_FileNotFound tests handling of non-existent file
 func TestHandleFileArchive_FileNotFound(t *testing.T) {
-	module, _ := createTestModule(t)
-
-	archiveReq := FileArchiveRequest{
-		FileID: "non-existent-file",
-	}
-
-	reqBytes, err := json.Marshal(archiveReq)
-	require.NoError(t, err)
-
-	msg := &mono.Msg{
-		Data: reqBytes,
-	}
+	_, module := startTestApp(t)
 
 	// Should not return error (fire-and-forget pattern)
-	notFoundErr := module.handleFileArchive(context.Background(), msg)
+	notFoundErr := module.handleFileArchive(context.Background(), contract.FileArchiveRequest{FileID: "non-existent-file"}, nil)
 	assert.NoError(t, notFoundErr)
 }
 
-// TestHandleFileArchive_InvalidJSON tests handling of malformed request
-func TestHandleFileArchive_InvalidJSON(t *testing.T) {
-	module, _ := createTestModule(t)
-
-	msg := &mono.Msg{
-		Data: []byte("invalid json"),
-	}
+// TestHandleFileArchive_MissingFileID tests handling of an empty file ID
+func TestHandleFileArchive_MissingFileID(t *testing.T) {
+	_, module := startTestApp(t)
 
 	// Should not return error (fire-and-forget pattern)
-	invalidErr := module.handleFileArchive(context.Background(), msg)
-	assert.NoError(t, invalidErr)
+	assert.NoError(t, module.handleFileArchive(context.Background(), contract.FileArchiveRequest{}, nil))
 }
 
 // TestHandleFileArchive_AlreadyArchived tests skipping already archived files
 func TestHandleFileArchive_AlreadyArchived(t *testing.T) {
-	module, bucket := createTestModule(t)
+	_, module := startTestApp(t)
+	bucket := module.bucket
 
 	// Save a ZIP file directly
 	fileID := "test-zip-id"
@@ -211,18 +274,7 @@ func TestHandleFileArchive_AlreadyArchived(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to archive it
-	archiveReq := FileArchiveRequest{
-		FileID: fileID,
-	}
-
-	reqBytes, err := json.Marshal(archiveReq)
-	require.NoError(t, err)
-
-	msg := &mono.Msg{
-		Data: reqBytes,
-	}
-
-	archiveErr := module.handleFileArchive(context.Background(), msg)
+	archiveErr := module.handleFileArchive(context.Background(), contract.FileArchiveRequest{FileID: fileID}, nil)
 	assert.NoError(t, archiveErr)
 
 	// Should still have only one file (not duplicated)

@@ -2,16 +2,16 @@ package product
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/example/gorm-sqlite-demo/modules/product/contract"
 )
 
 // ProductModule provides product management services via GORM + SQLite.
@@ -22,9 +22,11 @@ type ProductModule struct {
 }
 
 // Compile-time interface checks.
-var _ mono.Module = (*ProductModule)(nil)
-var _ mono.ServiceProviderModule = (*ProductModule)(nil)
-var _ mono.HealthCheckableModule = (*ProductModule)(nil)
+var (
+	_ mono.Module                = (*ProductModule)(nil)
+	_ mono.ServiceProviderModule = (*ProductModule)(nil)
+	_ mono.HealthCheckableModule = (*ProductModule)(nil)
+)
 
 // NewModule creates a new ProductModule.
 func NewModule() *ProductModule {
@@ -76,37 +78,23 @@ func (m *ProductModule) Health(ctx context.Context) mono.HealthStatus {
 	}
 }
 
-// RegisterServices registers request-reply services in the service container.
-// The framework automatically prefixes service names with "services.<module>."
-// so "create" becomes "services.product.create" in the NATS subject.
+// RegisterServices is the module's driving adapter: it binds each handler to
+// the module's own typed contract (see contract/contract.go), so service names,
+// subjects (services.product.<service>) and JSON encoding are declared once.
 func (m *ProductModule) RegisterServices(container mono.ServiceContainer) error {
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "create", json.Unmarshal, json.Marshal, m.createProduct,
-	); err != nil {
+	if err := contract.CreateProduct.Register(container, m.createProduct); err != nil {
 		return fmt.Errorf("failed to register create service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "get", json.Unmarshal, json.Marshal, m.getProduct,
-	); err != nil {
+	if err := contract.GetProduct.Register(container, m.getProduct); err != nil {
 		return fmt.Errorf("failed to register get service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "list", json.Unmarshal, json.Marshal, m.listProducts,
-	); err != nil {
+	if err := contract.ListProducts.Register(container, m.listProducts); err != nil {
 		return fmt.Errorf("failed to register list service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "update", json.Unmarshal, json.Marshal, m.updateProduct,
-	); err != nil {
+	if err := contract.UpdateProduct.Register(container, m.updateProduct); err != nil {
 		return fmt.Errorf("failed to register update service: %w", err)
 	}
-
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "delete", json.Unmarshal, json.Marshal, m.deleteProduct,
-	); err != nil {
+	if err := contract.DeleteProduct.Register(container, m.deleteProduct); err != nil {
 		return fmt.Errorf("failed to register delete service: %w", err)
 	}
 
@@ -130,6 +118,16 @@ func (m *ProductModule) Start(_ context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
+
+	// Request-reply handlers run concurrently on the framework's worker pool
+	// (mono v0.1.1+). SQLite allows a single writer at a time, so funnel all
+	// access through one connection: concurrent requests queue in
+	// database/sql instead of contending for SQLite's file lock.
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get sql.DB: %w", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 
 	m.db = db
 

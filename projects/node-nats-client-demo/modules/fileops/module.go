@@ -2,14 +2,18 @@ package fileops
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/go-monolith/mono"
-	fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
-	"github.com/go-monolith/mono/pkg/helper"
 	"github.com/go-monolith/mono/pkg/types"
+	fsjetstream "github.com/go-monolith/mono/plugin/fs-jetstream"
+
+	"node-nats-client-demo/modules/fileops/contract"
 )
+
+// archiveQueueGroup is the queue group of the archive workers. It is a
+// provider-side detail: senders only need the contract's subject.
+const archiveQueueGroup = "archive-workers"
 
 // Module implements the file operations module using the fs-jetstream plugin.
 type Module struct {
@@ -75,28 +79,23 @@ func (m *Module) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RegisterServices registers the file operations services with the service container.
+// RegisterServices binds the typed handlers to the module's own contracts,
+// which fix the subjects and JSON encoding the Node.js clients rely on.
 func (m *Module) RegisterServices(container mono.ServiceContainer) error {
-	// Register RequestReplyService for file.save
-	if err := helper.RegisterTypedRequestReplyService(
-		container,
-		"save",
-		json.Unmarshal,
-		json.Marshal,
-		m.handleFileSave,
-	); err != nil {
+	// RequestReplyService on services.fileops.save
+	if err := contract.Save.Register(container, m.handleFileSave); err != nil {
 		return fmt.Errorf("failed to register save service: %w", err)
 	}
 
-	// Register QueueGroupService for file.archive
-	if err := container.RegisterQueueGroupService("archive", mono.QGHP{
-		QueueGroup: "archive-workers",
+	// QueueGroupService on services.fileops.archive
+	if err := contract.Archive.Register(container, types.TypedQGHP[contract.FileArchiveRequest]{
+		QueueGroup: archiveQueueGroup,
 		Handler:    m.handleFileArchive,
 	}); err != nil {
 		return fmt.Errorf("failed to register archive service: %w", err)
 	}
 
 	m.logger.Info("Registered services",
-		"services", "services.fileops.save, services.fileops.archive")
+		"services", []string{contract.Save.Subject(), contract.Archive.Subject()})
 	return nil
 }

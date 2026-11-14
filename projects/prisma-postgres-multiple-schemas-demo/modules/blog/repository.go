@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/example/prisma-postgres-demo/modules/blog/db/generated"
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/blog/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

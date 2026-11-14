@@ -1,6 +1,8 @@
 package ratelimit
 
 import (
+	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -335,5 +337,41 @@ func TestMiddleware_OnServiceRegistration_NilHandler(t *testing.T) {
 	// Should pass through unchanged since handler is nil
 	if result.RequestHandler != nil {
 		t.Error("OnServiceRegistration() should not wrap nil handler")
+	}
+}
+
+// TestMiddleware_OnServiceRegistration_WrapsAndPreservesOptions checks that a
+// request-reply registration (what a typed contract's Register produces) gets
+// its handler wrapped while every other field, including the worker pool
+// Options introduced in mono v0.0.15, comes back unchanged.
+func TestMiddleware_OnServiceRegistration_WrapsAndPreservesOptions(t *testing.T) {
+	m, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	original := func(_ context.Context, _ *types.Msg) ([]byte, error) { return []byte("ok"), nil }
+	reg := types.ServiceRegistration{
+		Name:           "create-order",
+		ModuleName:     "api",
+		Subject:        "services.api.create-order",
+		Type:           types.ServiceTypeRequestReply,
+		RequestHandler: original,
+		Options:        types.ServiceOptions{MaxConcurrency: 1, MaxPending: 7},
+	}
+
+	result := m.OnServiceRegistration(context.Background(), reg)
+
+	if result.RequestHandler == nil {
+		t.Fatal("OnServiceRegistration() dropped the handler")
+	}
+	if reflect.ValueOf(result.RequestHandler).Pointer() == reflect.ValueOf(original).Pointer() {
+		t.Error("OnServiceRegistration() did not wrap the request handler")
+	}
+	if result.Options != reg.Options {
+		t.Errorf("Options = %+v, want %+v", result.Options, reg.Options)
+	}
+	if result.Name != reg.Name || result.ModuleName != reg.ModuleName || result.Subject != reg.Subject {
+		t.Errorf("identity changed: got %s/%s %s", result.ModuleName, result.Name, result.Subject)
 	}
 }

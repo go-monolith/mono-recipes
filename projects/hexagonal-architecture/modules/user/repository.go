@@ -2,18 +2,20 @@ package user
 
 import (
 	"sync"
+
+	"github.com/example/hexagonal-architecture/modules/user/contract"
 )
 
 // UserRepository provides in-memory user storage.
 type UserRepository struct {
-	users map[string]*UserInfo
+	users map[string]*contract.UserInfo
 	mu    sync.RWMutex
 }
 
 // NewUserRepository creates a new user repository.
 func NewUserRepository() *UserRepository {
 	return &UserRepository{
-		users: make(map[string]*UserInfo),
+		users: make(map[string]*contract.UserInfo),
 	}
 }
 
@@ -22,7 +24,7 @@ func (r *UserRepository) SeedDemoUsers() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	demoUsers := []*UserInfo{
+	demoUsers := []*contract.UserInfo{
 		{ID: "user-1", Name: "Alice Johnson", Email: "alice@example.com"},
 		{ID: "user-2", Name: "Bob Smith", Email: "bob@example.com"},
 		{ID: "user-3", Name: "Charlie Brown", Email: "charlie@example.com"},
@@ -34,7 +36,7 @@ func (r *UserRepository) SeedDemoUsers() {
 }
 
 // FindByID finds a user by ID.
-func (r *UserRepository) FindByID(userID string) (*UserInfo, bool) {
+func (r *UserRepository) FindByID(userID string) (*contract.UserInfo, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

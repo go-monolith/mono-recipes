@@ -1,6 +1,6 @@
 # WebSocket Chat Demo
 
-A real-time chat application built with the Mono Framework, demonstrating WebSocket communication and the EventBus pubsub pattern for message broadcasting.
+A real-time chat application built with the Mono Framework (mono v0.1.1), demonstrating WebSocket communication, the EventBus pubsub pattern for message broadcasting, and module boundaries (typed contracts, a consumer-owned port and adapter, strict mode).
 
 ## Features
 
@@ -69,59 +69,127 @@ The Mono EventBus enables decoupled message broadcasting:
 ### How It Works
 
 ```
-┌──────────────┐     EventBus      ┌──────────────┐
-│  Chat Module │ ────────────────> │  Chat Module │
-│  (Publisher) │   ChatMessage     │  (Consumer)  │
-│              │   UserJoined      │              │
-│              │   UserLeft        │              │
-└──────────────┘                   └──────────────┘
-                                          │
-                                          ▼
-                                   Store in history
-
-┌──────────────┐                   ┌──────────────┐
-│  WebSocket   │ ←── Read from ─── │  Room Store  │
-│  Handler     │     store and     │  (History)   │
-│              │     broadcast     │              │
-└──────────────┘                   └──────────────┘
+┌──────────────┐  services.chat.*  ┌──────────────┐
+│  ws-server   │ ────────────────> │     chat     │
+│  (ChatPort → │  typed contracts  │ (RoomStore)  │
+│   adapter)   │                   │              │
+└──────────────┘                   └──────┬───────┘
+       ▲                                  │ EventBus
+       │  UserJoined / UserLeft /         │ events.chat.v1.*
+       │  ChatMessage                     ▼
+       │                           ┌──────────────┐
+       └────── broadcast to ────── │ ChatMessage  │──> chat stores the
+               room members        │ UserJoined   │    message in history
+                                   │ UserLeft     │
+                                   └──────────────┘
 ```
 
 ### Event Definitions
 
+Events are declared once, in the emitter's contract package
+(`modules/chat/contract/contract.go`), next to the service contracts:
+
 ```go
-// Define typed events
 var ChatMessageV1 = helper.EventDefinition[ChatEvent](
     "chat",        // Module name
     "ChatMessage", // Event name
     "v1",          // Version
 )
 
-// Publish events
-ChatMessageV1.Publish(eventBus, event, nil)
+// Publish events (chat module)
+contract.ChatMessageV1.Publish(m.eventBus, event, nil)
 ```
 
-### Self-consuming Events
+### Consuming Events Through the Contract
 
-The chat module both emits and consumes events:
+Both the chat module (to store history) and the ws-server module (to
+broadcast) subscribe with the contract definition, so there is no
+`GetEventByName("ChatMessage", "v1", "chat")` string lookup and the payload
+arrives decoded:
 
 ```go
-// Emit events when messages are sent
-func (m *Module) SendMessage(userID, content string) error {
-    ChatMessageV1.Publish(m.eventBus, event, nil)
+// chat/module.go: the chat module consumes its own ChatMessage events
+func (m *Module) RegisterEventConsumers(registry mono.EventRegistry) error {
+    return helper.RegisterTypedEventConsumer(registry, contract.ChatMessageV1, m.handleChatMessage, m)
 }
 
-// Consume events to store in history
-func (m *Module) RegisterEventConsumers(registry mono.EventRegistry) error {
-    registry.RegisterEventConsumer(msgDef, m.handleChatMessage, m)
+func (m *Module) handleChatMessage(_ context.Context, event contract.ChatEvent, _ *mono.Msg) error {
+    m.store.AddMessage(event.Message)
+    return nil
 }
+
+// wsserver/module.go: imports only chat/contract
+helper.RegisterTypedEventConsumer(registry, chatcontract.UserJoinedV1, m.broadcast("user_joined"), m)
 ```
 
 ### Why This Pattern?
 
 1. **Loose coupling**: WebSocket handlers don't directly call storage
 2. **Extensibility**: Add more consumers (logging, analytics) without changing publisher
-3. **Testability**: Mock EventBus for unit testing
+3. **Testability**: monotest runs the module on an in-memory EventBus
 4. **Persistence**: Events can be durably stored with JetStream
+
+## Module Boundaries
+
+The ws-server module never imports the chat module package. It talks to it
+only through `chat/contract`:
+
+- **Contract** (`chat/contract/contract.go`): the DTOs (`Room`, `User`,
+  `Message`, the `*ServiceRequest`/`*ServiceResponse` types), nine typed
+  request-reply contracts (`CreateRoom`, `GetRoom`, `ListRooms`, `JoinRoom`,
+  `LeaveRoom`, `SendMessage`, `GetUser`, `GetHistory`, `GetRoomUsers`, on the
+  unchanged subjects `services.chat.<service>`) and the three events.
+- **Provider** (`chat/module.go`) registers typed handlers through the contracts:
+
+  ```go
+  func (m *Module) RegisterServices(container mono.ServiceContainer) error {
+      return errors.Join(
+          contract.CreateRoom.Register(container, m.handleCreateRoom),
+          contract.JoinRoom.Register(container, m.handleJoinRoom),
+          // ...
+      )
+  }
+  ```
+
+- **Consumer** (`wsserver/`): `ports.go` declares `ChatPort`, what the
+  handlers need, in the chat contract's DTOs; `adapter.go` implements it over
+  the contracts with the container received in `SetDependencyServiceContainer`
+  and turns a response's `Error` field into a Go error:
+
+  ```go
+  func (a chatAdapter) JoinRoom(ctx context.Context, roomID, userID, username string) (*chatcontract.User, error) {
+      resp, err := chatcontract.JoinRoom.Call(ctx, a.container, chatcontract.JoinRoomServiceRequest{
+          RoomID: roomID, UserID: userID, Username: username,
+      })
+      if err != nil {
+          return nil, fmt.Errorf("failed to call join-room service: %w", err)
+      }
+      return resp.User, domainError(resp.Error)
+  }
+  ```
+
+  `ConsumeServices()` lists all nine contracts, and the framework validates
+  them at startup against the chat module's registered services.
+
+`main.go` runs with `mono.WithStrictModuleBoundaries()`, so a boundary
+violation (calling an undeclared module's service subject, registering on a
+dependency's container) fails instead of only being reported at `Stop`.
+
+### Conformance tests
+
+```bash
+go test ./...
+```
+
+Each module has a `module_test.go` running `monotest.CheckModule` without NATS:
+
+- `chat`: calls every provided contract through the module's own container,
+  checks the message reaches the history through the self-consumed
+  `ChatMessage` event, and that all three events are declared and published.
+- `wsserver`: a stand-in chat container registers the nine contracts (and
+  publishes the chat events like the real module); the exercise drives the
+  REST endpoints and a real WebSocket client (join, users, message, history,
+  rooms, leave), so every consumed contract and every event consumer runs.
 
 ## Scaling Considerations
 
@@ -249,20 +317,25 @@ GET /health
 
 ```
 websocket-chat-demo/
-├── main.go                        # Application entry point
+├── main.go                        # Application entry point (strict module boundaries)
 ├── go.mod
 ├── demo.py                        # Python demo with multiple clients
 ├── requirements.txt               # Python dependencies
 ├── README.md
 └── modules/
     ├── chat/                      # Chat room service
-    │   ├── module.go              # EventBusAware, EventEmitter, EventConsumer
-    │   ├── types.go               # Room, User, Message, RoomStore
-    │   ├── events.go              # Event definitions
-    │   └── types_test.go          # Unit tests
+    │   ├── contract/
+    │   │   └── contract.go        # Published port: DTOs, service contracts, events
+    │   ├── module.go              # EventBusAware, EventEmitter, EventConsumer, RegisterServices
+    │   ├── types.go               # Validation, RoomStore
+    │   ├── types_test.go          # Store unit tests
+    │   └── module_test.go         # monotest.CheckModule conformance test
     └── wsserver/                  # WebSocket server
-        ├── module.go              # Fiber server lifecycle
-        └── handlers.go            # WebSocket and REST handlers
+        ├── ports.go               # Driven port: ChatPort
+        ├── adapter.go             # Adapter over the chat contracts
+        ├── module.go              # Fiber server lifecycle, ConsumeServices, event consumers
+        ├── handlers.go            # WebSocket and REST handlers
+        └── module_test.go         # monotest.CheckModule conformance test
 ```
 
 ## Running the Demo
@@ -304,6 +377,8 @@ Environment variables:
 1. **WebSocket Connections**: Full-duplex communication with Fiber
 2. **EventBusAwareModule**: Receiving EventBus for publishing
 3. **EventEmitterModule**: Declaring and publishing chat events
-4. **EventConsumerModule**: Consuming events for message history
-5. **Broadcast Pattern**: Broadcasting to room members via connection map
-6. **Graceful Shutdown**: Proper WebSocket connection cleanup
+4. **EventConsumerModule**: Consuming events through the contract definitions (history, broadcast)
+5. **Typed service contracts**: `chat/contract`, a consumer-owned port and adapter, `ConsumeServices()`
+6. **Strict module boundaries**: `mono.WithStrictModuleBoundaries()` and `monotest.CheckModule`
+7. **Broadcast Pattern**: Broadcasting to room members via connection map
+8. **Graceful Shutdown**: Proper WebSocket connection cleanup

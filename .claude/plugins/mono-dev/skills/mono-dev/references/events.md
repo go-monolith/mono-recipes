@@ -407,24 +407,25 @@ allEvents := registry.GetAllEvents()
 
 ## Event Discovery Patterns
 
-### Pattern A: Direct Import (Type-Safe)
+### Pattern A: Contract Import (Type-Safe, Recommended)
 
 ```go
-import "myapp/modules/order"  // Import emitter module
+// Import only the emitter's contract package, never the emitter's module package
+import ordercontract "myapp/modules/order/contract"
 
 func (m *NotificationModule) RegisterEventConsumers(
     registry mono.EventRegistry) error {
     return helper.RegisterTypedEventConsumer(
         registry,
-        order.OrderCreatedV1,  // Direct reference
+        ordercontract.OrderCreatedV1,  // Event definition owned by the emitter's contract
         m.handleOrderCreated,
         m,
     )
 }
 ```
 
-**Pros:** Compile-time type safety, IDE support
-**Cons:** Creates import dependency (not runtime dependency)
+**Pros:** Compile-time type safety, IDE support, respects the contract import rule (see `module-boundaries.md`)
+**Cons:** Compile-time import of the emitter's `contract` package (not a runtime dependency)
 
 ### Pattern B: Runtime Discovery (Decoupled)
 

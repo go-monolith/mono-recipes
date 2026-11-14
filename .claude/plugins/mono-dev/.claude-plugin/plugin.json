@@ -1,6 +1,6 @@
 {
   "name": "mono-dev",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Best practices for developing modular monolith applications with the go-monolith/mono framework",
   "author": {
     "name": "go-monolith",

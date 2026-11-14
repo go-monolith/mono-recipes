@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/example/prisma-postgres-demo/modules/blog/db/generated"
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/blog/db/generated"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/example/prisma-postgres-multiple-schemas-demo/modules/blog/contract"
 )
 
 // Post validation errors.
@@ -31,21 +33,21 @@ var (
 
 // PostService defines the interface for post business operations.
 type PostService interface {
-	Create(ctx context.Context, req CreatePostRequest) (PostResponse, error)
-	Get(ctx context.Context, req GetPostRequest) (PostResponse, error)
-	List(ctx context.Context, req ListPostsRequest) (ListPostsResponse, error)
-	Update(ctx context.Context, req UpdatePostRequest) (PostResponse, error)
-	Delete(ctx context.Context, req DeletePostRequest) (DeletePostResponse, error)
-	Publish(ctx context.Context, req PublishPostRequest) (PostResponse, error)
+	Create(ctx context.Context, req contract.CreatePostRequest) (contract.PostResponse, error)
+	Get(ctx context.Context, req contract.GetPostRequest) (contract.PostResponse, error)
+	List(ctx context.Context, req contract.ListPostsRequest) (contract.ListPostsResponse, error)
+	Update(ctx context.Context, req contract.UpdatePostRequest) (contract.PostResponse, error)
+	Delete(ctx context.Context, req contract.DeletePostRequest) (contract.DeletePostResponse, error)
+	Publish(ctx context.Context, req contract.PublishPostRequest) (contract.PostResponse, error)
 }
 
 // CommentService defines the interface for comment business operations.
 type CommentService interface {
-	Create(ctx context.Context, req CreateCommentRequest) (CommentResponse, error)
-	Get(ctx context.Context, req GetCommentRequest) (CommentResponse, error)
-	List(ctx context.Context, req ListCommentsRequest) (ListCommentsResponse, error)
-	Update(ctx context.Context, req UpdateCommentRequest) (CommentResponse, error)
-	Delete(ctx context.Context, req DeleteCommentRequest) (DeleteCommentResponse, error)
+	Create(ctx context.Context, req contract.CreateCommentRequest) (contract.CommentResponse, error)
+	Get(ctx context.Context, req contract.GetCommentRequest) (contract.CommentResponse, error)
+	List(ctx context.Context, req contract.ListCommentsRequest) (contract.ListCommentsResponse, error)
+	Update(ctx context.Context, req contract.UpdateCommentRequest) (contract.CommentResponse, error)
+	Delete(ctx context.Context, req contract.DeleteCommentRequest) (contract.DeleteCommentResponse, error)
 }
 
 // PostServiceImpl implements PostService using PostRepository.
@@ -62,29 +64,29 @@ func NewPostService(repo PostRepository) PostService {
 }
 
 // Create handles the post creation request.
-func (s *PostServiceImpl) Create(ctx context.Context, req CreatePostRequest) (PostResponse, error) {
+func (s *PostServiceImpl) Create(ctx context.Context, req contract.CreatePostRequest) (contract.PostResponse, error) {
 	if req.Title == "" {
-		return PostResponse{}, ErrPostTitleRequired
+		return contract.PostResponse{}, ErrPostTitleRequired
 	}
 	if req.Content == "" {
-		return PostResponse{}, ErrPostContentRequired
+		return contract.PostResponse{}, ErrPostContentRequired
 	}
 	if req.Slug == "" {
-		return PostResponse{}, ErrPostSlugRequired
+		return contract.PostResponse{}, ErrPostSlugRequired
 	}
 
 	post, err := s.repo.Create(ctx, req.Title, req.Content, req.Slug, req.Published)
 	if err != nil {
-		return PostResponse{}, err
+		return contract.PostResponse{}, err
 	}
 
 	return toPostResponse(post), nil
 }
 
 // Get handles the post retrieval request (by ID or slug).
-func (s *PostServiceImpl) Get(ctx context.Context, req GetPostRequest) (PostResponse, error) {
+func (s *PostServiceImpl) Get(ctx context.Context, req contract.GetPostRequest) (contract.PostResponse, error) {
 	if req.ID == "" && req.Slug == "" {
-		return PostResponse{}, ErrPostIDOrSlugRequired
+		return contract.PostResponse{}, ErrPostIDOrSlugRequired
 	}
 
 	var post *generated.BlogPost
@@ -93,7 +95,7 @@ func (s *PostServiceImpl) Get(ctx context.Context, req GetPostRequest) (PostResp
 	if req.ID != "" {
 		id, parseErr := uuid.Parse(req.ID)
 		if parseErr != nil {
-			return PostResponse{}, ErrPostIDInvalid
+			return contract.PostResponse{}, ErrPostIDInvalid
 		}
 		post, err = s.repo.FindByID(ctx, id)
 	} else {
@@ -101,14 +103,14 @@ func (s *PostServiceImpl) Get(ctx context.Context, req GetPostRequest) (PostResp
 	}
 
 	if err != nil {
-		return PostResponse{}, err
+		return contract.PostResponse{}, err
 	}
 
 	return toPostResponse(post), nil
 }
 
 // List handles the post list request with pagination and optional published filter.
-func (s *PostServiceImpl) List(ctx context.Context, req ListPostsRequest) (ListPostsResponse, error) {
+func (s *PostServiceImpl) List(ctx context.Context, req contract.ListPostsRequest) (contract.ListPostsResponse, error) {
 	limit := clampLimit(req.Limit)
 	offset := clampOffset(req.Offset)
 
@@ -119,27 +121,27 @@ func (s *PostServiceImpl) List(ctx context.Context, req ListPostsRequest) (ListP
 	if req.Published != nil {
 		posts, err = s.repo.FindAllByPublished(ctx, *req.Published, limit, offset)
 		if err != nil {
-			return ListPostsResponse{}, err
+			return contract.ListPostsResponse{}, err
 		}
 		total, err = s.repo.CountByPublished(ctx, *req.Published)
 	} else {
 		posts, err = s.repo.FindAll(ctx, limit, offset)
 		if err != nil {
-			return ListPostsResponse{}, err
+			return contract.ListPostsResponse{}, err
 		}
 		total, err = s.repo.Count(ctx)
 	}
 
 	if err != nil {
-		return ListPostsResponse{}, err
+		return contract.ListPostsResponse{}, err
 	}
 
-	postResponses := make([]PostResponse, len(posts))
+	postResponses := make([]contract.PostResponse, len(posts))
 	for i := range posts {
 		postResponses[i] = toPostResponse(&posts[i])
 	}
 
-	return ListPostsResponse{
+	return contract.ListPostsResponse{
 		Posts:  postResponses,
 		Total:  total,
 		Limit:  limit,
@@ -148,66 +150,66 @@ func (s *PostServiceImpl) List(ctx context.Context, req ListPostsRequest) (ListP
 }
 
 // Update handles the post update request.
-func (s *PostServiceImpl) Update(ctx context.Context, req UpdatePostRequest) (PostResponse, error) {
+func (s *PostServiceImpl) Update(ctx context.Context, req contract.UpdatePostRequest) (contract.PostResponse, error) {
 	if req.ID == "" {
-		return PostResponse{}, ErrPostIDRequired
+		return contract.PostResponse{}, ErrPostIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return PostResponse{}, ErrPostIDInvalid
+		return contract.PostResponse{}, ErrPostIDInvalid
 	}
 
 	if req.Title != nil && *req.Title == "" {
-		return PostResponse{}, ErrPostTitleRequired
+		return contract.PostResponse{}, ErrPostTitleRequired
 	}
 	if req.Content != nil && *req.Content == "" {
-		return PostResponse{}, ErrPostContentRequired
+		return contract.PostResponse{}, ErrPostContentRequired
 	}
 	if req.Slug != nil && *req.Slug == "" {
-		return PostResponse{}, ErrPostSlugRequired
+		return contract.PostResponse{}, ErrPostSlugRequired
 	}
 
 	post, err := s.repo.Update(ctx, id, req.Title, req.Content, req.Slug, req.Published)
 	if err != nil {
-		return PostResponse{}, err
+		return contract.PostResponse{}, err
 	}
 
 	return toPostResponse(post), nil
 }
 
 // Delete handles the post deletion request.
-func (s *PostServiceImpl) Delete(ctx context.Context, req DeletePostRequest) (DeletePostResponse, error) {
+func (s *PostServiceImpl) Delete(ctx context.Context, req contract.DeletePostRequest) (contract.DeletePostResponse, error) {
 	if req.ID == "" {
-		return DeletePostResponse{}, ErrPostIDRequired
+		return contract.DeletePostResponse{}, ErrPostIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return DeletePostResponse{}, ErrPostIDInvalid
+		return contract.DeletePostResponse{}, ErrPostIDInvalid
 	}
 
 	if err := s.repo.Delete(ctx, id); err != nil {
-		return DeletePostResponse{ID: req.ID}, err
+		return contract.DeletePostResponse{ID: req.ID}, err
 	}
 
-	return DeletePostResponse{Deleted: true, ID: req.ID}, nil
+	return contract.DeletePostResponse{Deleted: true, ID: req.ID}, nil
 }
 
 // Publish handles the post publish request.
-func (s *PostServiceImpl) Publish(ctx context.Context, req PublishPostRequest) (PostResponse, error) {
+func (s *PostServiceImpl) Publish(ctx context.Context, req contract.PublishPostRequest) (contract.PostResponse, error) {
 	if req.ID == "" {
-		return PostResponse{}, ErrPostIDRequired
+		return contract.PostResponse{}, ErrPostIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return PostResponse{}, ErrPostIDInvalid
+		return contract.PostResponse{}, ErrPostIDInvalid
 	}
 
 	post, err := s.repo.Publish(ctx, id)
 	if err != nil {
-		return PostResponse{}, err
+		return contract.PostResponse{}, err
 	}
 
 	return toPostResponse(post), nil
@@ -231,59 +233,59 @@ func NewCommentService(commentRepo CommentRepository, postRepo PostRepository) C
 }
 
 // Create handles the comment creation request.
-func (s *CommentServiceImpl) Create(ctx context.Context, req CreateCommentRequest) (CommentResponse, error) {
+func (s *CommentServiceImpl) Create(ctx context.Context, req contract.CreateCommentRequest) (contract.CommentResponse, error) {
 	if req.PostID == "" {
-		return CommentResponse{}, ErrCommentPostIDRequired
+		return contract.CommentResponse{}, ErrCommentPostIDRequired
 	}
 	if req.Author == "" {
-		return CommentResponse{}, ErrCommentAuthorRequired
+		return contract.CommentResponse{}, ErrCommentAuthorRequired
 	}
 	if req.Content == "" {
-		return CommentResponse{}, ErrCommentContentRequired
+		return contract.CommentResponse{}, ErrCommentContentRequired
 	}
 
 	postID, err := uuid.Parse(req.PostID)
 	if err != nil {
-		return CommentResponse{}, ErrCommentPostIDInvalid
+		return contract.CommentResponse{}, ErrCommentPostIDInvalid
 	}
 
 	// Repository handles foreign key constraint violation and returns ErrPostDoesNotExist
 	comment, err := s.commentRepo.Create(ctx, postID, req.Author, req.Content)
 	if err != nil {
-		return CommentResponse{}, err
+		return contract.CommentResponse{}, err
 	}
 
 	return toCommentResponse(comment), nil
 }
 
 // Get handles the comment retrieval request.
-func (s *CommentServiceImpl) Get(ctx context.Context, req GetCommentRequest) (CommentResponse, error) {
+func (s *CommentServiceImpl) Get(ctx context.Context, req contract.GetCommentRequest) (contract.CommentResponse, error) {
 	if req.ID == "" {
-		return CommentResponse{}, ErrCommentIDRequired
+		return contract.CommentResponse{}, ErrCommentIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return CommentResponse{}, ErrCommentIDInvalid
+		return contract.CommentResponse{}, ErrCommentIDInvalid
 	}
 
 	comment, err := s.commentRepo.FindByID(ctx, id)
 	if err != nil {
-		return CommentResponse{}, err
+		return contract.CommentResponse{}, err
 	}
 
 	return toCommentResponse(comment), nil
 }
 
 // List handles the comment list request with pagination.
-func (s *CommentServiceImpl) List(ctx context.Context, req ListCommentsRequest) (ListCommentsResponse, error) {
+func (s *CommentServiceImpl) List(ctx context.Context, req contract.ListCommentsRequest) (contract.ListCommentsResponse, error) {
 	if req.PostID == "" {
-		return ListCommentsResponse{}, ErrCommentPostIDRequired
+		return contract.ListCommentsResponse{}, ErrCommentPostIDRequired
 	}
 
 	postID, err := uuid.Parse(req.PostID)
 	if err != nil {
-		return ListCommentsResponse{}, ErrCommentPostIDInvalid
+		return contract.ListCommentsResponse{}, ErrCommentPostIDInvalid
 	}
 
 	limit := clampLimit(req.Limit)
@@ -291,20 +293,20 @@ func (s *CommentServiceImpl) List(ctx context.Context, req ListCommentsRequest) 
 
 	comments, err := s.commentRepo.FindAllByPostID(ctx, postID, limit, offset)
 	if err != nil {
-		return ListCommentsResponse{}, err
+		return contract.ListCommentsResponse{}, err
 	}
 
 	total, err := s.commentRepo.CountByPostID(ctx, postID)
 	if err != nil {
-		return ListCommentsResponse{}, err
+		return contract.ListCommentsResponse{}, err
 	}
 
-	commentResponses := make([]CommentResponse, len(comments))
+	commentResponses := make([]contract.CommentResponse, len(comments))
 	for i := range comments {
 		commentResponses[i] = toCommentResponse(&comments[i])
 	}
 
-	return ListCommentsResponse{
+	return contract.ListCommentsResponse{
 		Comments: commentResponses,
 		Total:    total,
 		Limit:    limit,
@@ -313,47 +315,47 @@ func (s *CommentServiceImpl) List(ctx context.Context, req ListCommentsRequest) 
 }
 
 // Update handles the comment update request.
-func (s *CommentServiceImpl) Update(ctx context.Context, req UpdateCommentRequest) (CommentResponse, error) {
+func (s *CommentServiceImpl) Update(ctx context.Context, req contract.UpdateCommentRequest) (contract.CommentResponse, error) {
 	if req.ID == "" {
-		return CommentResponse{}, ErrCommentIDRequired
+		return contract.CommentResponse{}, ErrCommentIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return CommentResponse{}, ErrCommentIDInvalid
+		return contract.CommentResponse{}, ErrCommentIDInvalid
 	}
 
 	if req.Author != nil && *req.Author == "" {
-		return CommentResponse{}, ErrCommentAuthorRequired
+		return contract.CommentResponse{}, ErrCommentAuthorRequired
 	}
 	if req.Content != nil && *req.Content == "" {
-		return CommentResponse{}, ErrCommentContentRequired
+		return contract.CommentResponse{}, ErrCommentContentRequired
 	}
 
 	comment, err := s.commentRepo.Update(ctx, id, req.Author, req.Content)
 	if err != nil {
-		return CommentResponse{}, err
+		return contract.CommentResponse{}, err
 	}
 
 	return toCommentResponse(comment), nil
 }
 
 // Delete handles the comment deletion request.
-func (s *CommentServiceImpl) Delete(ctx context.Context, req DeleteCommentRequest) (DeleteCommentResponse, error) {
+func (s *CommentServiceImpl) Delete(ctx context.Context, req contract.DeleteCommentRequest) (contract.DeleteCommentResponse, error) {
 	if req.ID == "" {
-		return DeleteCommentResponse{}, ErrCommentIDRequired
+		return contract.DeleteCommentResponse{}, ErrCommentIDRequired
 	}
 
 	id, err := uuid.Parse(req.ID)
 	if err != nil {
-		return DeleteCommentResponse{}, ErrCommentIDInvalid
+		return contract.DeleteCommentResponse{}, ErrCommentIDInvalid
 	}
 
 	if err := s.commentRepo.Delete(ctx, id); err != nil {
-		return DeleteCommentResponse{ID: req.ID}, err
+		return contract.DeleteCommentResponse{ID: req.ID}, err
 	}
 
-	return DeleteCommentResponse{Deleted: true, ID: req.ID}, nil
+	return contract.DeleteCommentResponse{Deleted: true, ID: req.ID}, nil
 }
 
 // Pagination constants.
@@ -381,8 +383,8 @@ func clampOffset(offset int32) int32 {
 	return offset
 }
 
-func toPostResponse(post *generated.BlogPost) PostResponse {
-	return PostResponse{
+func toPostResponse(post *generated.BlogPost) contract.PostResponse {
+	return contract.PostResponse{
 		ID:        uuidToString(post.ID),
 		Title:     post.Title,
 		Content:   post.Content,
@@ -393,8 +395,8 @@ func toPostResponse(post *generated.BlogPost) PostResponse {
 	}
 }
 
-func toCommentResponse(comment *generated.BlogComment) CommentResponse {
-	return CommentResponse{
+func toCommentResponse(comment *generated.BlogComment) contract.CommentResponse {
+	return contract.CommentResponse{
 		ID:        uuidToString(comment.ID),
 		PostID:    uuidToString(comment.PostID),
 		Author:    comment.Author,

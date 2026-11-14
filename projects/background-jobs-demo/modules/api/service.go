@@ -6,119 +6,65 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/example/background-jobs-demo/domain/job"
-	"github.com/example/background-jobs-demo/modules/worker"
-	"github.com/go-monolith/mono"
+	workercontract "github.com/example/background-jobs-demo/modules/worker/contract"
 )
 
-// Service handles job-related business logic.
+// Service maps the HTTP use cases onto the worker's job contracts.
 type Service struct {
-	jobStore        *job.Store
-	workerContainer mono.ServiceContainer
+	jobs JobsPort
 }
 
-// NewService creates a new job service.
-func NewService(jobStore *job.Store, workerContainer mono.ServiceContainer) *Service {
-	return &Service{
-		jobStore:        jobStore,
-		workerContainer: workerContainer,
-	}
+// NewService creates a new job service over the worker's job contracts.
+func NewService(jobs JobsPort) *Service {
+	return &Service{jobs: jobs}
 }
 
-// CreateJob creates a new job and enqueues it for processing.
-func (s *Service) CreateJob(ctx context.Context, req *job.CreateJobRequest) (*job.Job, error) {
-	// Validate job type
-	if !req.Type.IsValid() {
-		return nil, job.ErrInvalidJobType
-	}
-
-	// Validate and marshal payload based on job type
-	payload, err := s.validateAndMarshalPayload(req.Type, req.Payload)
+// CreateJob asks the worker to record and enqueue a new job.
+func (s *Service) CreateJob(ctx context.Context, jobType string, payload any, priority int) (*workercontract.Job, error) {
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrInvalidPayload, err)
 	}
 
-	// Create the job
-	j := job.NewJob(req.Type, payload, req.Priority)
-
-	// Store the job
-	if err := s.jobStore.Create(j); err != nil {
-		return nil, fmt.Errorf("failed to store job: %w", err)
-	}
-
-	// Get the QueueGroupService client
-	client, err := s.workerContainer.GetQueueGroupService(worker.ServiceName)
+	resp, err := s.jobs.CreateJob(ctx, workercontract.CreateJobRequest{Type: jobType, Payload: data, Priority: priority})
 	if err != nil {
-		_ = s.jobStore.UpdateStatus(j.ID, job.JobStatusFailed)
-		return nil, job.ErrQueueUnavailable
+		// The worker could not be reached: nothing was enqueued.
+		return nil, fmt.Errorf("%w: %v", ErrQueueUnavailable, err)
 	}
-
-	// Marshal the job for the queue
-	jobData, err := json.Marshal(j)
-	if err != nil {
-		_ = s.jobStore.UpdateStatus(j.ID, job.JobStatusFailed)
-		return nil, fmt.Errorf("failed to marshal job: %w", err)
+	switch resp.ErrorCode {
+	case "":
+	case workercontract.ErrorCodeInvalidJobType:
+		return nil, &rejection{kind: ErrInvalidJobType, msg: resp.Error}
+	case workercontract.ErrorCodeInvalidPayload:
+		return nil, &rejection{kind: ErrInvalidPayload, msg: resp.Error}
+	case workercontract.ErrorCodeQueueUnavailable:
+		return nil, &rejection{kind: ErrQueueUnavailable, msg: resp.Error}
+	default:
+		return nil, fmt.Errorf("create job rejected: %s: %s", resp.ErrorCode, resp.Error)
 	}
-
-	// Send to worker queue (fire-and-forget)
-	if err := client.Send(ctx, jobData); err != nil {
-		_ = s.jobStore.UpdateStatus(j.ID, job.JobStatusFailed)
-		return nil, fmt.Errorf("failed to enqueue job: %w", err)
+	if resp.Job == nil {
+		return nil, fmt.Errorf("create job: worker returned no job")
 	}
-
-	return j, nil
+	return resp.Job, nil
 }
 
 // GetJob retrieves a job by ID.
-func (s *Service) GetJob(id string) (*job.Job, error) {
-	return s.jobStore.GetByID(id)
-}
-
-// ListJobs returns all jobs with optional filtering.
-func (s *Service) ListJobs(status job.JobStatus, jobType job.JobType, limit, offset int) []*job.Job {
-	return s.jobStore.List(status, jobType, limit, offset)
-}
-
-// validateAndMarshalPayload validates the payload for the given job type and returns JSON bytes.
-func (s *Service) validateAndMarshalPayload(jobType job.JobType, payload any) (json.RawMessage, error) {
-	// Marshal to JSON first
-	data, err := json.Marshal(payload)
+func (s *Service) GetJob(ctx context.Context, id string) (*workercontract.Job, error) {
+	resp, err := s.jobs.GetJob(ctx, workercontract.GetJobRequest{ID: id})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", job.ErrInvalidPayload, err)
+		return nil, err
 	}
-
-	// Validate by unmarshaling into the correct type
-	switch jobType {
-	case job.JobTypeEmail:
-		var p job.EmailPayload
-		if err := json.Unmarshal(data, &p); err != nil {
-			return nil, fmt.Errorf("%w: invalid email payload", job.ErrInvalidPayload)
-		}
-		if p.To == "" || p.Subject == "" || p.Body == "" {
-			return nil, fmt.Errorf("%w: email payload requires to, subject, and body", job.ErrInvalidPayload)
-		}
-
-	case job.JobTypeImageProcessing:
-		var p job.ImageProcessingPayload
-		if err := json.Unmarshal(data, &p); err != nil {
-			return nil, fmt.Errorf("%w: invalid image processing payload", job.ErrInvalidPayload)
-		}
-		if p.ImageURL == "" || p.OutputPath == "" {
-			return nil, fmt.Errorf("%w: image processing payload requires image_url and output_path", job.ErrInvalidPayload)
-		}
-
-	case job.JobTypeReportGeneration:
-		var p job.ReportGenerationPayload
-		if err := json.Unmarshal(data, &p); err != nil {
-			return nil, fmt.Errorf("%w: invalid report generation payload", job.ErrInvalidPayload)
-		}
-		if p.ReportType == "" || p.Format == "" {
-			return nil, fmt.Errorf("%w: report generation payload requires report_type and format", job.ErrInvalidPayload)
-		}
-
-	default:
-		return nil, job.ErrInvalidJobType
+	if !resp.Found || resp.Job == nil {
+		return nil, ErrJobNotFound
 	}
+	return resp.Job, nil
+}
 
-	return data, nil
+// ListJobs returns one page of jobs with optional filtering.
+func (s *Service) ListJobs(ctx context.Context, status, jobType string, limit, offset int) ([]workercontract.Job, error) {
+	resp, err := s.jobs.ListJobs(ctx, workercontract.ListJobsRequest{Status: status, Type: jobType, Limit: limit, Offset: offset})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Jobs, nil
 }

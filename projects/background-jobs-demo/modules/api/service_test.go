@@ -3,388 +3,173 @@ package api
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/example/background-jobs-demo/domain/job"
-	"github.com/example/background-jobs-demo/modules/worker"
-	"github.com/go-monolith/mono"
+	"github.com/go-monolith/mono/monotest"
+	"github.com/go-monolith/mono/pkg/types"
+
+	workercontract "github.com/example/background-jobs-demo/modules/worker/contract"
 )
 
-// mockQueueGroupServiceClient is a mock implementation of mono.QueueGroupServiceClient
-type mockQueueGroupServiceClient struct {
-	sentData   [][]byte
-	shouldFail bool
+// fakeWorker is the state behind the stand-in worker container: the jobs it
+// "created", and the rejection code create-job answers with, if any.
+type fakeWorker struct {
+	mu     sync.Mutex
+	jobs   []workercontract.Job
+	reject string
 }
 
-func (m *mockQueueGroupServiceClient) Send(_ context.Context, data []byte) error {
-	if m.shouldFail {
-		return errors.New("queue unavailable")
+// standInWorker returns a NATS-free stand-in for the worker module, its
+// services registered through the worker's own contracts and dispatched on
+// the bus.
+func standInWorker(t *testing.T) (*monotest.Container, *fakeWorker) {
+	t.Helper()
+	bus := monotest.NewEventBus()
+	t.Cleanup(bus.Close)
+	c := monotest.NewContainer("worker", bus)
+	fake := &fakeWorker{}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	m.sentData = append(m.sentData, data)
-	return nil
+	must(workercontract.CreateJob.Register(c, func(_ context.Context, req workercontract.CreateJobRequest, _ *types.Msg) (workercontract.CreateJobResponse, error) {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		if fake.reject != "" {
+			return workercontract.CreateJobResponse{ErrorCode: fake.reject, Error: "rejected: " + fake.reject}, nil
+		}
+		now := time.Now()
+		j := workercontract.Job{ID: "job-" + req.Type, Type: req.Type, Status: "pending", Payload: req.Payload, Priority: req.Priority, CreatedAt: now, UpdatedAt: now}
+		fake.jobs = append(fake.jobs, j)
+		return workercontract.CreateJobResponse{Job: &j}, nil
+	}))
+	must(workercontract.GetJob.Register(c, func(_ context.Context, req workercontract.GetJobRequest, _ *types.Msg) (workercontract.GetJobResponse, error) {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		for _, j := range fake.jobs {
+			if j.ID == req.ID {
+				return workercontract.GetJobResponse{Job: &j, Found: true}, nil
+			}
+		}
+		return workercontract.GetJobResponse{Found: false}, nil
+	}))
+	must(workercontract.ListJobs.Register(c, func(_ context.Context, req workercontract.ListJobsRequest, _ *types.Msg) (workercontract.ListJobsResponse, error) {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		out := []workercontract.Job{}
+		for _, j := range fake.jobs {
+			if req.Type == "" || j.Type == req.Type {
+				out = append(out, j)
+			}
+		}
+		if req.Offset >= len(out) {
+			return workercontract.ListJobsResponse{Jobs: []workercontract.Job{}}, nil
+		}
+		end := min(req.Offset+req.Limit, len(out))
+		return workercontract.ListJobsResponse{Jobs: out[req.Offset:end]}, nil
+	}))
+	must(c.Dispatch(context.Background()))
+	return c, fake
 }
 
-func (m *mockQueueGroupServiceClient) SendMsg(_ context.Context, _ *mono.Msg) error {
-	if m.shouldFail {
-		return errors.New("queue unavailable")
-	}
-	return nil
-}
-
-// mockServiceContainer is a mock implementation of mono.ServiceContainer
-type mockServiceContainer struct {
-	queueGroupClient *mockQueueGroupServiceClient
-	serviceNotFound  bool
-}
-
-func (m *mockServiceContainer) BindModule(_ mono.Module) error {
-	return nil
-}
-
-func (m *mockServiceContainer) SetEventBus(_ mono.EventBus) {}
-
-func (m *mockServiceContainer) SetQueueGroupOptimisticWindow(_ time.Duration) {}
-
-func (m *mockServiceContainer) SetMiddlewareChain(_ mono.MiddlewareChainRunner) {}
-
-func (m *mockServiceContainer) RegisterChannelService(_ string, _ chan *mono.Msg, _ chan *mono.Msg) error {
-	return nil
-}
-
-func (m *mockServiceContainer) RegisterRequestReplyService(_ string, _ mono.RequestReplyHandler) error {
-	return nil
-}
-
-func (m *mockServiceContainer) RegisterQueueGroupService(_ string, _ ...mono.QGHP) error {
-	return nil
-}
-
-func (m *mockServiceContainer) RegisterStreamConsumerService(_ string, _ mono.StreamConsumerConfig, _ mono.StreamConsumerHandler) error {
-	return nil
-}
-
-func (m *mockServiceContainer) RegisterCronService(_ string, _ mono.CronServiceConfig, _ mono.CronHandler) error {
-	return nil
-}
-
-func (m *mockServiceContainer) GetChannelService(_ string, _ string) (chan *mono.Msg, chan *mono.Msg, error) {
-	return nil, nil, nil
-}
-
-func (m *mockServiceContainer) MustGetChannelService(_ string, _ string) (chan *mono.Msg, chan *mono.Msg) {
-	return nil, nil
-}
-
-func (m *mockServiceContainer) GetRequestReplyService(_ string) (mono.RequestReplyServiceClient, error) {
-	return nil, nil
-}
-
-func (m *mockServiceContainer) GetQueueGroupService(name string) (mono.QueueGroupServiceClient, error) {
-	if m.serviceNotFound {
-		return nil, errors.New("service not found")
-	}
-	if name == worker.ServiceName {
-		return m.queueGroupClient, nil
-	}
-	return nil, errors.New("unknown service")
-}
-
-func (m *mockServiceContainer) GetStreamConsumerService(_ string) (mono.StreamConsumerServiceClient, error) {
-	return nil, nil
-}
-
-func (m *mockServiceContainer) Has(name string) bool {
-	return name == worker.ServiceName && !m.serviceNotFound
-}
-
-func (m *mockServiceContainer) Entries() []*mono.ServiceEntry {
-	return nil
-}
-
-func (m *mockServiceContainer) Unregister(_ string) error {
-	return nil
-}
-
-func (m *mockServiceContainer) StartChannelRouters(_ context.Context) {
+// newTestService wires a Service to the container through the real adapter.
+func newTestService(c *monotest.Container) *Service {
+	return NewService(workerAdapter{container: c})
 }
 
 func TestService_CreateJob_Success(t *testing.T) {
-	tests := []struct {
-		name    string
-		req     *job.CreateJobRequest
-		wantErr bool
-	}{
-		{
-			name: "valid email job",
-			req: &job.CreateJobRequest{
-				Type: job.JobTypeEmail,
-				Payload: map[string]any{
-					"to":      "test@example.com",
-					"subject": "Test",
-					"body":    "Test body",
-				},
-				Priority: 1,
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid image processing job",
-			req: &job.CreateJobRequest{
-				Type: job.JobTypeImageProcessing,
-				Payload: map[string]any{
-					"image_url":   "https://example.com/image.jpg",
-					"operations":  []string{"resize"},
-					"output_path": "/output/image.jpg",
-				},
-				Priority: 2,
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid report generation job",
-			req: &job.CreateJobRequest{
-				Type: job.JobTypeReportGeneration,
-				Payload: map[string]any{
-					"report_type": "sales",
-					"format":      "pdf",
-					"date_range": map[string]any{
-						"start": "2024-01-01",
-						"end":   "2024-01-31",
-					},
-				},
-				Priority: 0,
-			},
-			wantErr: false,
-		},
+	worker, fake := standInWorker(t)
+	service := newTestService(worker)
+
+	payload := map[string]any{"to": "test@example.com", "subject": "Test", "body": "Test body"}
+	j, err := service.CreateJob(context.Background(), "email", payload, 1)
+	if err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
 	}
+	if j.Type != "email" || j.Status != "pending" || j.Priority != 1 {
+		t.Errorf("CreateJob() = %+v", j)
+	}
+	if len(fake.jobs) != 1 || string(fake.jobs[0].Payload) != `{"body":"Test body","subject":"Test","to":"test@example.com"}` {
+		t.Errorf("worker received %+v", fake.jobs)
+	}
+}
 
+func TestService_CreateJob_Rejections(t *testing.T) {
+	tests := []struct {
+		code string
+		want error
+	}{
+		{workercontract.ErrorCodeInvalidJobType, ErrInvalidJobType},
+		{workercontract.ErrorCodeInvalidPayload, ErrInvalidPayload},
+		{workercontract.ErrorCodeQueueUnavailable, ErrQueueUnavailable},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create fresh mocks for each test case
-			jobStore := job.NewStore()
-			mockClient := &mockQueueGroupServiceClient{sentData: make([][]byte, 0)}
-			mockContainer := &mockServiceContainer{queueGroupClient: mockClient}
-			service := NewService(jobStore, mockContainer)
-
-			j, err := service.CreateJob(context.Background(), tt.req)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateJob() error = %v, wantErr %v", err, tt.wantErr)
-				return
+		t.Run(tt.code, func(t *testing.T) {
+			worker, fake := standInWorker(t)
+			fake.reject = tt.code
+			_, err := newTestService(worker).CreateJob(context.Background(), "email", map[string]any{}, 0)
+			if !errors.Is(err, tt.want) {
+				t.Errorf("CreateJob() error = %v, want %v", err, tt.want)
 			}
-
-			if !tt.wantErr {
-				if j == nil {
-					t.Error("CreateJob() returned nil job")
-					return
-				}
-
-				if j.Type != tt.req.Type {
-					t.Errorf("CreateJob() job type = %v, want %v", j.Type, tt.req.Type)
-				}
-
-				if j.Status != job.JobStatusPending {
-					t.Errorf("CreateJob() job status = %v, want %v", j.Status, job.JobStatusPending)
-				}
-
-				// Verify job was stored
-				stored, err := jobStore.GetByID(j.ID)
-				if err != nil {
-					t.Errorf("Job not found in store: %v", err)
-				}
-				if stored.ID != j.ID {
-					t.Errorf("Stored job ID = %v, want %v", stored.ID, j.ID)
-				}
-
-				// Verify job was sent to queue
-				if len(mockClient.sentData) == 0 {
-					t.Error("Job was not sent to queue")
-				}
+			// The worker's reason is passed through verbatim (shown in the HTTP body).
+			if err != nil && err.Error() != "rejected: "+tt.code {
+				t.Errorf("CreateJob() error message = %q", err.Error())
 			}
 		})
 	}
 }
 
-func TestService_CreateJob_InvalidType(t *testing.T) {
-	jobStore := job.NewStore()
-	mockClient := &mockQueueGroupServiceClient{sentData: make([][]byte, 0)}
-	mockContainer := &mockServiceContainer{queueGroupClient: mockClient}
-	service := NewService(jobStore, mockContainer)
-
-	req := &job.CreateJobRequest{
-		Type:     job.JobType("invalid_type"),
-		Payload:  map[string]any{},
-		Priority: 0,
-	}
-
-	_, err := service.CreateJob(context.Background(), req)
-	if err != job.ErrInvalidJobType {
-		t.Errorf("CreateJob() error = %v, want %v", err, job.ErrInvalidJobType)
-	}
-}
-
-func TestService_CreateJob_InvalidPayload(t *testing.T) {
-	jobStore := job.NewStore()
-	mockClient := &mockQueueGroupServiceClient{sentData: make([][]byte, 0)}
-	mockContainer := &mockServiceContainer{queueGroupClient: mockClient}
-	service := NewService(jobStore, mockContainer)
-
-	tests := []struct {
-		name    string
-		jobType job.JobType
-		payload map[string]any
-	}{
-		{
-			name:    "email missing required fields",
-			jobType: job.JobTypeEmail,
-			payload: map[string]any{
-				"to": "test@example.com",
-				// missing subject and body
-			},
-		},
-		{
-			name:    "image processing missing required fields",
-			jobType: job.JobTypeImageProcessing,
-			payload: map[string]any{
-				"image_url": "https://example.com/image.jpg",
-				// missing output_path
-			},
-		},
-		{
-			name:    "report generation missing required fields",
-			jobType: job.JobTypeReportGeneration,
-			payload: map[string]any{
-				"report_type": "sales",
-				// missing format
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := &job.CreateJobRequest{
-				Type:     tt.jobType,
-				Payload:  tt.payload,
-				Priority: 0,
-			}
-
-			_, err := service.CreateJob(context.Background(), req)
-			if !errors.Is(err, job.ErrInvalidPayload) {
-				t.Errorf("CreateJob() error = %v, want %v", err, job.ErrInvalidPayload)
-			}
-		})
-	}
-}
-
-func TestService_CreateJob_QueueUnavailable(t *testing.T) {
-	jobStore := job.NewStore()
-	mockClient := &mockQueueGroupServiceClient{shouldFail: true, sentData: make([][]byte, 0)}
-	mockContainer := &mockServiceContainer{queueGroupClient: mockClient}
-	service := NewService(jobStore, mockContainer)
-
-	req := &job.CreateJobRequest{
-		Type: job.JobTypeEmail,
-		Payload: map[string]any{
-			"to":      "test@example.com",
-			"subject": "Test",
-			"body":    "Test body",
-		},
-		Priority: 1,
-	}
-
-	_, err := service.CreateJob(context.Background(), req)
-	if err == nil {
-		t.Error("CreateJob() expected error when queue is unavailable")
-	}
-
-	// Verify job status was updated to failed
-	jobs := jobStore.List("", "", 100, 0)
-	if len(jobs) > 0 && jobs[0].Status != job.JobStatusFailed {
-		t.Errorf("Job status = %v, want %v after queue failure", jobs[0].Status, job.JobStatusFailed)
-	}
-}
-
-func TestService_CreateJob_ServiceNotFound(t *testing.T) {
-	jobStore := job.NewStore()
-	mockContainer := &mockServiceContainer{serviceNotFound: true}
-	service := NewService(jobStore, mockContainer)
-
-	req := &job.CreateJobRequest{
-		Type: job.JobTypeEmail,
-		Payload: map[string]any{
-			"to":      "test@example.com",
-			"subject": "Test",
-			"body":    "Test body",
-		},
-		Priority: 1,
-	}
-
-	_, err := service.CreateJob(context.Background(), req)
-	if !errors.Is(err, job.ErrQueueUnavailable) {
-		t.Errorf("CreateJob() error = %v, want %v", err, job.ErrQueueUnavailable)
+func TestService_CreateJob_WorkerUnreachable(t *testing.T) {
+	// The worker never registered create-job.
+	service := newTestService(monotest.NewContainer("worker", monotest.NewEventBus()))
+	_, err := service.CreateJob(context.Background(), "email", map[string]any{}, 0)
+	if !errors.Is(err, ErrQueueUnavailable) {
+		t.Errorf("CreateJob() error = %v, want %v", err, ErrQueueUnavailable)
 	}
 }
 
 func TestService_GetJob(t *testing.T) {
-	jobStore := job.NewStore()
-	mockClient := &mockQueueGroupServiceClient{sentData: make([][]byte, 0)}
-	mockContainer := &mockServiceContainer{queueGroupClient: mockClient}
-	service := NewService(jobStore, mockContainer)
+	worker, _ := standInWorker(t)
+	service := newTestService(worker)
+	ctx := context.Background()
 
-	// Create a job
-	j := job.NewJob(job.JobTypeEmail, []byte(`{"to":"test@example.com"}`), 1)
-	_ = jobStore.Create(j)
-
-	// Get the job
-	retrieved, err := service.GetJob(j.ID)
+	created, err := service.CreateJob(ctx, "email", map[string]any{"to": "a@example.com"}, 0)
 	if err != nil {
-		t.Errorf("GetJob() error = %v", err)
+		t.Fatal(err)
 	}
-
-	if retrieved.ID != j.ID {
-		t.Errorf("GetJob() ID = %v, want %v", retrieved.ID, j.ID)
+	got, err := service.GetJob(ctx, created.ID)
+	if err != nil || got.ID != created.ID {
+		t.Errorf("GetJob() = %+v, %v", got, err)
 	}
-}
-
-func TestService_GetJob_NotFound(t *testing.T) {
-	jobStore := job.NewStore()
-	mockClient := &mockQueueGroupServiceClient{sentData: make([][]byte, 0)}
-	mockContainer := &mockServiceContainer{queueGroupClient: mockClient}
-	service := NewService(jobStore, mockContainer)
-
-	_, err := service.GetJob("non-existent-id")
-	if err != job.ErrJobNotFound {
-		t.Errorf("GetJob() error = %v, want %v", err, job.ErrJobNotFound)
+	if _, err := service.GetJob(ctx, "non-existent-id"); !errors.Is(err, ErrJobNotFound) {
+		t.Errorf("GetJob(missing) error = %v, want %v", err, ErrJobNotFound)
 	}
 }
 
 func TestService_ListJobs(t *testing.T) {
-	jobStore := job.NewStore()
-	mockClient := &mockQueueGroupServiceClient{sentData: make([][]byte, 0)}
-	mockContainer := &mockServiceContainer{queueGroupClient: mockClient}
-	service := NewService(jobStore, mockContainer)
+	worker, _ := standInWorker(t)
+	service := newTestService(worker)
+	ctx := context.Background()
 
-	// Create multiple jobs
-	for i := 0; i < 5; i++ {
-		j := job.NewJob(job.JobTypeEmail, []byte(`{"to":"test@example.com"}`), i)
-		_ = jobStore.Create(j)
+	for _, jobType := range []string{"email", "image_processing", "report_generation"} {
+		if _, err := service.CreateJob(ctx, jobType, map[string]any{}, 0); err != nil {
+			t.Fatal(err)
+		}
 	}
-
-	// List all jobs
-	jobs := service.ListJobs("", "", 10, 0)
-	if len(jobs) != 5 {
-		t.Errorf("ListJobs() count = %v, want %v", len(jobs), 5)
+	all, err := service.ListJobs(ctx, "", "", 10, 0)
+	if err != nil || len(all) != 3 {
+		t.Errorf("ListJobs() = %d jobs, %v; want 3", len(all), err)
 	}
-
-	// Test pagination
-	jobs = service.ListJobs("", "", 2, 0)
-	if len(jobs) != 2 {
-		t.Errorf("ListJobs() with limit count = %v, want %v", len(jobs), 2)
+	page, _ := service.ListJobs(ctx, "", "", 2, 2)
+	if len(page) != 1 {
+		t.Errorf("ListJobs(limit 2, offset 2) = %d jobs, want 1", len(page))
 	}
-
-	jobs = service.ListJobs("", "", 2, 2)
-	if len(jobs) != 2 {
-		t.Errorf("ListJobs() with offset count = %v, want %v", len(jobs), 2)
+	emails, _ := service.ListJobs(ctx, "", "email", 10, 0)
+	if len(emails) != 1 {
+		t.Errorf("ListJobs(type email) = %d jobs, want 1", len(emails))
 	}
 }

@@ -2,13 +2,14 @@ package payment
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/go-monolith/mono"
+
+	"github.com/example/python-nats-client-demo/modules/payment/contract"
 )
 
 // paymentStore is an in-memory store for payment results.
@@ -45,25 +46,27 @@ func (s *paymentStore) getOrSetProcessing(paymentID string) (*PaymentResult, boo
 	}
 	s.payments[paymentID] = &PaymentResult{
 		PaymentID: paymentID,
-		Status:    PaymentStatusProcessing,
+		Status:    contract.PaymentStatusProcessing,
 	}
 	return nil, false
 }
 
-// handlePayments handles batch of payment messages from the stream.
-func (m *PaymentModule) handlePayments(_ context.Context, msgs []*mono.Msg) error {
-	for _, msg := range msgs {
-		var req PaymentRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			log.Printf("[payment] Error unmarshaling payment request: %v", err)
-			msg.Term() // Don't retry malformed messages
+// handlePayments handles a batch of payment messages from the stream.
+// payments[i] is the decoded payload of msgs[i]; the handler acknowledges each
+// message itself.
+func (m *PaymentModule) handlePayments(_ context.Context, payments []contract.PaymentRequest, msgs []*mono.Msg) error {
+	for i, req := range payments {
+		msg := msgs[i]
+		if req.PaymentID == "" {
+			log.Printf("[payment] Invalid payment request: missing payment_id")
+			_ = msg.Term() // Don't retry malformed messages
 			continue
 		}
 
 		// Atomically check for idempotency and mark as processing
 		if existing, alreadyExists := m.store.getOrSetProcessing(req.PaymentID); alreadyExists {
 			log.Printf("[payment] Payment %s already processed (status: %s)", req.PaymentID, existing.Status)
-			msg.Ack()
+			_ = msg.Ack()
 			continue
 		}
 
@@ -76,7 +79,7 @@ func (m *PaymentModule) handlePayments(_ context.Context, msgs []*mono.Msg) erro
 		if rand.Float32() < 0.95 {
 			result = &PaymentResult{
 				PaymentID: req.PaymentID,
-				Status:    PaymentStatusCompleted,
+				Status:    contract.PaymentStatusCompleted,
 				Message:   "Payment processed successfully",
 			}
 			log.Printf("[payment] Payment %s completed for user %s ($%.2f) in %v",
@@ -84,7 +87,7 @@ func (m *PaymentModule) handlePayments(_ context.Context, msgs []*mono.Msg) erro
 		} else {
 			result = &PaymentResult{
 				PaymentID: req.PaymentID,
-				Status:    PaymentStatusFailed,
+				Status:    contract.PaymentStatusFailed,
 				Message:   "Payment gateway error (simulated)",
 			}
 			log.Printf("[payment] Payment %s failed for user %s ($%.2f)",
@@ -92,24 +95,24 @@ func (m *PaymentModule) handlePayments(_ context.Context, msgs []*mono.Msg) erro
 		}
 
 		m.store.set(result)
-		msg.Ack() // Only acknowledge after successful processing
+		_ = msg.Ack() // Only acknowledge after successful processing
 	}
 
 	return nil
 }
 
 // getStatus handles payment status queries via RequestReplyService.
-func (m *PaymentModule) getStatus(_ context.Context, req StatusRequest, _ *mono.Msg) (StatusResponse, error) {
+func (m *PaymentModule) getStatus(_ context.Context, req contract.StatusRequest, _ *mono.Msg) (contract.StatusResponse, error) {
 	result := m.store.get(req.PaymentID)
 	if result == nil {
-		return StatusResponse{
+		return contract.StatusResponse{
 			PaymentID: req.PaymentID,
-			Status:    PaymentStatusPending,
+			Status:    contract.PaymentStatusPending,
 			Message:   "Payment not found or not yet processed",
 		}, nil
 	}
 
-	return StatusResponse{
+	return contract.StatusResponse{
 		PaymentID: result.PaymentID,
 		Status:    result.Status,
 		Message:   result.Message,

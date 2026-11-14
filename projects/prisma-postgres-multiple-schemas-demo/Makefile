@@ -40,11 +40,11 @@ generate: prisma-migrate sqlc-generate
 
 # Build the application
 build:
-	go build -o bin/prisma-postgres-demo .
+	go build -o bin/prisma-postgres-multiple-schemas-demo .
 
 # Run the application
 run: build
-	./bin/prisma-postgres-demo
+	./bin/prisma-postgres-multiple-schemas-demo
 
 # Clean build artifacts
 clean:

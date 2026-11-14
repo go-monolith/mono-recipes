@@ -10,7 +10,6 @@ import (
 
 	"github.com/example/cron-scheduler-demo/modules/api"
 	"github.com/example/cron-scheduler-demo/modules/scheduler"
-	"github.com/example/cron-scheduler-demo/stats"
 	gfshutdown "github.com/gelmium/graceful-shutdown"
 	"github.com/go-monolith/mono"
 )
@@ -33,24 +32,22 @@ func main() {
 		mono.WithLogFormat(mono.LogFormatText),
 		mono.WithJetStreamStorageDir(storageDir),
 		mono.WithShutdownTimeout(shutdownTimeout),
+		// The api module reads the cron stats only through the scheduler's
+		// contract (declared in Dependencies and ConsumeServices), so module
+		// boundaries can be enforced.
+		mono.WithStrictModuleBoundaries(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create mono application: %v", err)
 	}
-
-	// Shared store: the scheduler records occurrences, the api serves them.
-	store := stats.NewStore()
 
 	httpAddr := os.Getenv("HTTP_ADDR")
 	if httpAddr == "" {
 		httpAddr = ":8080"
 	}
 
-	if err := app.Register(scheduler.NewModule(store)); err != nil {
-		log.Fatalf("Failed to register scheduler module: %v", err)
-	}
-	if err := app.Register(api.NewModule(store, httpAddr)); err != nil {
-		log.Fatalf("Failed to register api module: %v", err)
+	if err := registerModules(app, httpAddr); err != nil {
+		log.Fatalf("Failed to register modules: %v", err)
 	}
 
 	if err := app.Start(context.Background()); err != nil {
@@ -76,4 +73,15 @@ func main() {
 	exitCode := <-wait
 	log.Printf("Application exited with code: %d", exitCode)
 	os.Exit(exitCode)
+}
+
+// registerModules registers the scheduler module and the api module, which
+// depends on it and reads its stats through scheduler/contract.GetStats.
+func registerModules(app mono.MonoApplication, httpAddr string) error {
+	for _, m := range []mono.Module{scheduler.NewModule(), api.NewModule(httpAddr)} {
+		if err := app.Register(m); err != nil {
+			return fmt.Errorf("register %s module: %w", m.Name(), err)
+		}
+	}
+	return nil
 }

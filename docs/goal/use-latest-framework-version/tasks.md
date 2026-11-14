@@ -209,3 +209,34 @@ Target Version: v0.0.4 (released January 10, 2026)
 - All tasks follow the "Definition of Safe Change" from constraints.md
 - Each task updates one project independently as required by constraints
 - No "Don't Touch" areas violated
+
+---
+
+# Upgrade to mono v0.1.1 (2026-11-14)
+
+Current Version: v0.0.8
+Target Version: v0.1.1 (latest tag; v0.1.2 changes on mono `main` are not yet released)
+Reference: [Upgrading to v0.1.0](https://github.com/go-monolith/mono/blob/main/docs/official/guides/upgrading.md), mono-dev skill 0.6.x `references/module-boundaries.md`
+
+**Key changes affecting recipes:** typed service contracts (`helper.RequestReplyService` / `QueueGroupService` / `StreamConsumerService`), `ServiceConsumerModule.ConsumeServices()`, read-only dependency containers and module-scoped event buses, module boundary report and `WithStrictModuleBoundaries()`, `monotest` conformance harness, request-reply worker pools, caller deadline propagation (`Mono-Deadline` / `Mono-Timeout`), handler panic recovery, enforced `WithShutdownTimeout`, `RegisterRequestReplyService(..., opts ...ServiceOption)` (broke hand-written container fakes).
+
+Each task: `go get github.com/go-monolith/mono@v0.1.1 && go mod tidy`; per-module `contract` package; providers register through contracts; consumer-owned ports/adapters; `ConsumeServices()`; `monotest.CheckModule` test (or real-app boundary test for JetStream-backed modules); `mono.WithStrictModuleBoundaries()` in `main.go`; README updated; `go build -o bin/<project> .`, `go vet ./...`, `go test ./...` green.
+
+- [x] 14. background-jobs-demo - `worker/contract`; worker is the single owner of job state (no shared store); hand-written `mockServiceContainer` replaced with monotest
+- [x] 15. cron-scheduler-demo - shared `stats.Store` removed; `scheduler/contract.GetStats`; real-app cron test
+- [x] 16. file-upload-demo - `httpserver` module folded into `file-service` as its HTTP driving adapter (no direct struct coupling)
+- [x] 17. gorm-sqlite-demo - `product/contract`; SQLite limited to one connection for concurrent handlers; ctx-aware repository
+- [x] 18. graceful-shutdown-demo - `ShutdownWithContext` drains in-flight requests; CheckModule stop-deadline tests
+- [x] 19. hexagonal-architecture - shared `events/` moved into `task/contract`; consumer-owned ports/adapters; README rewritten
+- [x] 20. jwt-auth-demo - `auth/contract`; API port/adapter replaces `auth.NewAuthAdapter` and string-literal calls
+- [x] 21. node-nats-client-demo - `fileops/contract`; real-app boundary test; subjects unchanged
+- [x] 22. prisma-postgres-demo - `article/contract`; DB tests skip without Postgres
+- [x] 23. prisma-postgres-multiple-schemas-demo - module path fixed; `article/contract`, `blog/contract`; blog service names made kebab-case (`post-create`, ...)
+- [x] 24. python-nats-client-demo - math/notification/payment contracts; stream subject derived from contract
+- [x] 25. rate-limiting-middleware - `api/contract`; provider-owned test-only adapter removed; middleware keeps `reg.Options`
+- [x] 26. redis-caching-plugin - `product/contract`; API reaches product through port/adapter; plugin port resolved in `Start`
+- [x] 27. sqlc-postgres-demo - `user/contract`; DTO mapping from sqlc rows; DB tests skip without Postgres
+- [x] 28. url-shortener-demo - `shortener/contract` (services + events), `analytics/contract`; typed event consumers
+- [x] 29. websocket-chat-demo - `chat/contract` (services + events); wsserver port/adapter replaces `chat.NewServiceAdapter`
+
+**Progress:** 16/16 tasks completed (100%)

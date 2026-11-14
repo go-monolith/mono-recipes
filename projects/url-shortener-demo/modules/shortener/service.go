@@ -11,6 +11,8 @@ import (
 
 	kvjetstream "github.com/go-monolith/mono/plugin/kv-jetstream"
 	"github.com/jaevor/go-nanoid"
+
+	"github.com/example/url-shortener-demo/modules/shortener/contract"
 )
 
 // shortCodeAlphabet is the alphabet used for generating short codes.
@@ -25,8 +27,8 @@ var shortCodePattern = regexp.MustCompile(`^[a-zA-Z0-9]{1,16}$`)
 
 // Service provides URL shortening operations using the kv-jetstream plugin.
 type Service struct {
-	bucket    kvjetstream.KVStoragePort
-	baseURL   string
+	bucket     kvjetstream.KVStoragePort
+	baseURL    string
 	generateID func() string
 }
 
@@ -39,8 +41,8 @@ func NewService(bucket kvjetstream.KVStoragePort, baseURL string) (*Service, err
 	}
 
 	return &Service{
-		bucket:    bucket,
-		baseURL:   baseURL,
+		bucket:     bucket,
+		baseURL:    baseURL,
 		generateID: generator,
 	}, nil
 }
@@ -48,23 +50,23 @@ func NewService(bucket kvjetstream.KVStoragePort, baseURL string) (*Service, err
 // validateURL checks if the provided URL is valid and uses http/https scheme.
 func validateURL(rawURL string) error {
 	if rawURL == "" {
-		return ErrInvalidURL
+		return contract.ErrInvalidURL
 	}
 
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidURL, err.Error())
+		return fmt.Errorf("%w: %s", contract.ErrInvalidURL, err.Error())
 	}
 
 	switch parsed.Scheme {
 	case "http", "https":
 		// Valid schemes
 	default:
-		return fmt.Errorf("%w: scheme must be http or https", ErrInvalidURL)
+		return fmt.Errorf("%w: scheme must be http or https", contract.ErrInvalidURL)
 	}
 
 	if parsed.Host == "" {
-		return fmt.Errorf("%w: missing host", ErrInvalidURL)
+		return fmt.Errorf("%w: missing host", contract.ErrInvalidURL)
 	}
 
 	return nil
@@ -73,16 +75,16 @@ func validateURL(rawURL string) error {
 // validateShortCode checks if the short code format is valid.
 func validateShortCode(code string) error {
 	if code == "" {
-		return ErrInvalidShortCode
+		return contract.ErrInvalidShortCode
 	}
 	if !shortCodePattern.MatchString(code) {
-		return fmt.Errorf("%w: %s", ErrInvalidShortCode, code)
+		return fmt.Errorf("%w: %s", contract.ErrInvalidShortCode, code)
 	}
 	return nil
 }
 
 // ShortenURL creates a new shortened URL.
-func (s *Service) ShortenURL(ctx context.Context, req ShortenRequest) (*ShortenResponse, error) {
+func (s *Service) ShortenURL(ctx context.Context, req contract.ShortenRequest) (*contract.ShortenResponse, error) {
 	// Validate the URL
 	if err := validateURL(req.URL); err != nil {
 		return nil, err
@@ -92,7 +94,7 @@ func (s *Service) ShortenURL(ctx context.Context, req ShortenRequest) (*ShortenR
 	shortCode := s.generateID()
 
 	now := time.Now()
-	entry := URLEntry{
+	entry := contract.URLEntry{
 		ShortCode:   shortCode,
 		OriginalURL: req.URL,
 		CreatedAt:   now,
@@ -117,7 +119,7 @@ func (s *Service) ShortenURL(ctx context.Context, req ShortenRequest) (*ShortenR
 		return nil, fmt.Errorf("failed to store URL: %w", err)
 	}
 
-	return &ShortenResponse{
+	return &contract.ShortenResponse{
 		ShortCode:   shortCode,
 		ShortURL:    s.baseURL + "/" + shortCode,
 		OriginalURL: req.URL,
@@ -136,12 +138,12 @@ func (s *Service) GetOriginalURL(ctx context.Context, shortCode string) (string,
 	data, err := s.bucket.Get(shortCode)
 	if err != nil {
 		if errors.Is(err, kvjetstream.ErrKeyNotFound) {
-			return "", ErrURLNotFound
+			return "", contract.ErrURLNotFound
 		}
 		return "", fmt.Errorf("failed to get URL: %w", err)
 	}
 
-	var entry URLEntry
+	var entry contract.URLEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return "", fmt.Errorf("failed to unmarshal entry: %w", err)
 	}
@@ -160,12 +162,12 @@ func (s *Service) ResolveAndTrack(ctx context.Context, shortCode string) (string
 	kvEntry, err := s.bucket.GetEntry(shortCode)
 	if err != nil {
 		if errors.Is(err, kvjetstream.ErrKeyNotFound) {
-			return "", ErrURLNotFound
+			return "", contract.ErrURLNotFound
 		}
 		return "", fmt.Errorf("failed to get URL: %w", err)
 	}
 
-	var entry URLEntry
+	var entry contract.URLEntry
 	if err := json.Unmarshal(kvEntry.Value, &entry); err != nil {
 		return "", fmt.Errorf("failed to unmarshal entry: %w", err)
 	}
@@ -184,7 +186,7 @@ func (s *Service) ResolveAndTrack(ctx context.Context, shortCode string) (string
 	if !entry.ExpiresAt.IsZero() {
 		ttl = time.Until(entry.ExpiresAt)
 		if ttl < 0 {
-			return "", ErrURLExpired
+			return "", contract.ErrURLExpired
 		}
 	}
 
@@ -195,7 +197,7 @@ func (s *Service) ResolveAndTrack(ctx context.Context, shortCode string) (string
 }
 
 // GetStats retrieves statistics for a shortened URL.
-func (s *Service) GetStats(ctx context.Context, shortCode string) (*StatsResponse, error) {
+func (s *Service) GetStats(ctx context.Context, shortCode string) (*contract.StatsResponse, error) {
 	// Validate short code format
 	if err := validateShortCode(shortCode); err != nil {
 		return nil, err
@@ -204,22 +206,22 @@ func (s *Service) GetStats(ctx context.Context, shortCode string) (*StatsRespons
 	data, err := s.bucket.Get(shortCode)
 	if err != nil {
 		if errors.Is(err, kvjetstream.ErrKeyNotFound) {
-			return nil, ErrURLNotFound
+			return nil, contract.ErrURLNotFound
 		}
 		return nil, fmt.Errorf("failed to get URL: %w", err)
 	}
 
 	// Check for empty data (can happen with deleted keys in some KV implementations)
 	if len(data) == 0 {
-		return nil, ErrURLNotFound
+		return nil, contract.ErrURLNotFound
 	}
 
-	var entry URLEntry
+	var entry contract.URLEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal entry: %w", err)
 	}
 
-	return &StatsResponse{
+	return &contract.StatsResponse{
 		ShortCode:   entry.ShortCode,
 		OriginalURL: entry.OriginalURL,
 		AccessCount: entry.AccessCount,
@@ -238,7 +240,7 @@ func (s *Service) DeleteURL(ctx context.Context, shortCode string) error {
 	err := s.bucket.Delete(shortCode)
 	if err != nil {
 		if errors.Is(err, kvjetstream.ErrKeyNotFound) {
-			return ErrURLNotFound
+			return contract.ErrURLNotFound
 		}
 		return fmt.Errorf("failed to delete URL: %w", err)
 	}
@@ -247,13 +249,13 @@ func (s *Service) DeleteURL(ctx context.Context, shortCode string) error {
 }
 
 // ListURLs returns all active shortened URLs.
-func (s *Service) ListURLs(ctx context.Context) ([]URLEntry, error) {
+func (s *Service) ListURLs(ctx context.Context) ([]contract.URLEntry, error) {
 	keys, err := s.bucket.Keys()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list keys: %w", err)
 	}
 
-	var entries []URLEntry
+	var entries []contract.URLEntry
 	for _, key := range keys {
 		data, err := s.bucket.Get(key)
 		if err != nil {
@@ -261,7 +263,7 @@ func (s *Service) ListURLs(ctx context.Context) ([]URLEntry, error) {
 			continue
 		}
 
-		var entry URLEntry
+		var entry contract.URLEntry
 		if err := json.Unmarshal(data, &entry); err != nil {
 			continue
 		}

@@ -2,12 +2,12 @@ package math
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 
 	"github.com/go-monolith/mono"
-	"github.com/go-monolith/mono/pkg/helper"
+
+	"github.com/example/python-nats-client-demo/modules/math/contract"
 )
 
 // MathModule provides math calculation services via RequestReplyService.
@@ -29,17 +29,15 @@ func (m *MathModule) Name() string {
 	return "math"
 }
 
-// RegisterServices registers request-reply services in the service container.
-// The framework automatically prefixes service names with "services.<module>."
-// so "calculate" becomes "services.math.calculate" in the NATS subject.
+// RegisterServices binds the typed handler to the module's own contract.
+// The contract fixes the NATS subject (services.math.calculate) and the JSON
+// encoding the Python MathClient relies on.
 func (m *MathModule) RegisterServices(container mono.ServiceContainer) error {
-	if err := helper.RegisterTypedRequestReplyService(
-		container, "calculate", json.Unmarshal, json.Marshal, m.calculate,
-	); err != nil {
+	if err := contract.Calculate.Register(container, m.calculate); err != nil {
 		return fmt.Errorf("failed to register calculate service: %w", err)
 	}
 
-	log.Printf("[math] Registered services: services.math.calculate")
+	log.Printf("[math] Registered services: %s", contract.Calculate.Subject())
 	return nil
 }
 

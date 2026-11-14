@@ -294,40 +294,66 @@ func (m *Module) registerRoutes() {
 
 ## Dependency Injection Pattern
 
-HTTP server modules often need access to other module services. Use the DependentModule interface:
+HTTP server modules often need other modules' services. The HTTP module owns small driven ports, implements them with adapters that call the providers' typed contracts, declares the providers in `Dependencies()` and every contract it calls in `ConsumeServices()` (see `module-boundaries.md`). It imports only `<provider>/contract`.
 
 ```go
-type Module struct {
-    app              *fiber.App
-    addr             string
-    shortenerAdapter shortener.ShortenerAdapterPort
-    analyticsAdapter analytics.AnalyticsAdapterPort
-    logger           types.Logger
+// ports.go - owned by the HTTP module, speaks the providers' contract DTOs
+type ShortenerPort interface {
+    ShortenURL(ctx context.Context, req shortenercontract.ShortenRequest) (shortenercontract.ShortenResponse, error)
 }
 
-func (m *Module) Dependencies() []string {
-    return []string{"shortener", "analytics"}
+// adapter.go
+type shortenerAdapter struct{ container mono.ServiceContainer }
+
+var _ ShortenerPort = shortenerAdapter{}
+
+func (a shortenerAdapter) ShortenURL(ctx context.Context, req shortenercontract.ShortenRequest) (shortenercontract.ShortenResponse, error) {
+    return shortenercontract.ShortenURL.Call(ctx, a.container, req)
 }
+
+// module.go
+type Module struct {
+    app       *fiber.App
+    addr      string
+    shortener ShortenerPort
+    analytics AnalyticsPort
+    logger    types.Logger
+}
+
+var (
+    _ mono.DependentModule        = (*Module)(nil)
+    _ types.ServiceConsumerModule = (*Module)(nil) // no mono.* alias yet
+)
+
+func (m *Module) Dependencies() []string { return []string{"shortener", "analytics"} }
 
 func (m *Module) SetDependencyServiceContainer(module string, container mono.ServiceContainer) {
     switch module {
     case "shortener":
-        m.shortenerAdapter = shortener.NewShortenerAdapter(container)
-        m.logger.Info("Received shortener service container")
+        m.shortener = shortenerAdapter{container: container}
     case "analytics":
-        m.analyticsAdapter = analytics.NewAnalyticsAdapter(container)
-        m.logger.Info("Received analytics service container")
+        m.analytics = analyticsAdapter{container: container}
+    }
+}
+
+func (m *Module) ConsumeServices() []types.BaseServiceDefinition {
+    return []types.BaseServiceDefinition{
+        shortenercontract.ShortenURL.ToBase(),
+        analyticscontract.GetSummary.ToBase(),
+        // ... every contract the adapters call
     }
 }
 ```
+
+**Pass the request context correctly.** In Fiber handlers pass `c.UserContext()` (not `c.Context()`, the reusable `*fasthttp.RequestCtx`) to contract calls: the framework propagates the caller's deadline, and using the fasthttp context after the handler returns is a data race. In Gin use `c.Request.Context()`.
 
 ## Example Projects
 
 | Project | Framework | Features |
 |---------|-----------|----------|
-| `url-shortener-demo` | Fiber | CORS, dependency injection, adapter pattern |
-| `file-upload-demo` | Gin | Multipart uploads, custom logging middleware |
-| `jwt-auth-demo` | Fiber | JWT authentication, protected routes |
+| `url-shortener-demo` | Fiber | CORS, consumer-owned ports/adapters over typed contracts |
+| `file-upload-demo` | Gin | Multipart uploads, HTTP driving adapter inside the module, custom logging middleware |
+| `jwt-auth-demo` | Fiber | JWT authentication, protected routes, auth reached through a port/adapter |
 
 ## Best Practices
 
@@ -336,5 +362,5 @@ func (m *Module) SetDependencyServiceContainer(module string, container mono.Ser
 3. **Use release mode in production** - `gin.SetMode(gin.ReleaseMode)`
 4. **Disable startup messages** - `DisableStartupMessage: true` for Fiber
 5. **Handle startup errors** - Check for port conflicts before returning from Start()
-6. **Inject dependencies via interfaces** - Use adapter pattern for loose coupling
+6. **Inject dependencies via consumer-owned ports** - Adapters call `<provider>/contract`, never the provider's module package
 7. **Use structured logging** - Pass logger from main.go via constructor
